@@ -1,73 +1,137 @@
-# React + TypeScript + Vite
+# Frontend Brisas
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Frontend React + TypeScript para gestion interna y portada publica del restaurante.
 
-Currently, two official plugins are available:
+## Requisitos
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- Node.js 20+
+- npm 10+
 
-## React Compiler
+## Instalacion
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Variables de entorno
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+1. Copia `.env.example` a `.env`.
+2. Ajusta los valores segun tu backend.
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```env
+VITE_API_URL=http://localhost:3000/api
+VITE_API_TIMEOUT_MS=10000
 ```
+
+### Entornos recomendados
+
+- `.env.development`: conexion local (ya incluido).
+- `.env.production`: URL de produccion (ya incluido como plantilla).
+
+Vite carga automaticamente el archivo segun el modo.
+
+## Ejecutar en desarrollo
+
+```bash
+npm run dev
+```
+
+Si ejecutas `npm run dev -c` puede fallar por argumento no valido. Usa solo `npm run dev`.
+
+## Build de produccion
+
+```bash
+npm run build
+```
+
+## Configuracion Backend (paso a paso)
+
+### 1) URL base
+
+- Configura `VITE_API_URL` con la URL real de tu API.
+- Si tu backend usa prefijo global `/api`, mantenlo en la variable.
+
+Ejemplos:
+
+- `https://api.brisasdellago.com/api`
+- `http://localhost:3000/api`
+
+### 2) CORS en backend
+
+Habilita CORS para el frontend:
+
+- Desarrollo: `http://localhost:5173`
+- Produccion: dominio final del frontend
+
+### 3) Contrato de autenticacion esperado
+
+Endpoint usado por el frontend:
+
+- `POST /auth/login`
+
+Body:
+
+```json
+{
+  "email": "admin@brisas.com",
+  "password": "123456"
+}
+```
+
+Respuesta esperada:
+
+```json
+{
+  "token": "jwt-token",
+  "user": {
+    "id": 1,
+    "nombre": "Admin",
+    "email": "admin@brisas.com",
+    "rol": "admin"
+  }
+}
+```
+
+### 4) Endpoints ya cableados en el frontend
+
+- Auth
+  - `POST /auth/login`
+- Reservaciones
+  - `GET /reservaciones`
+  - `GET /reservaciones/:id`
+  - `POST /reservaciones`
+  - `PUT /reservaciones/:id`
+  - `PATCH /reservaciones/:id/estado`
+  - `DELETE /reservaciones/:id`
+- Menu
+  - `GET /menu/platos`
+  - `GET /menu/platos/:id`
+  - `POST /menu/platos`
+  - `PUT /menu/platos/:id`
+  - `DELETE /menu/platos/:id`
+  - `GET /menu/categorias`
+  - `POST /menu/categorias`
+  - `DELETE /menu/categorias/:id`
+- Plato del mes
+  - `GET /plato-del-mes/actual`
+  - `GET /plato-del-mes`
+  - `POST /plato-del-mes`
+  - `PUT /plato-del-mes/:id`
+  - `DELETE /plato-del-mes/:id`
+- Pedidos
+  - `GET /pedidos`
+  - `GET /pedidos/:id`
+  - `POST /pedidos`
+  - `PATCH /pedidos/:id/estado`
+  - `DELETE /pedidos/:id`
+
+### 5) Seguridad y sesion
+
+- El token se envia automaticamente en `Authorization: Bearer <token>`.
+- Si el backend responde `401`, el frontend limpia sesion y redirige a `/login`.
+
+## Archivos clave de integracion
+
+- `src/config/env.ts`: lectura y normalizacion de variables de entorno.
+- `src/services/api.ts`: instancia Axios central (base URL, timeout, interceptores).
+- `src/services/*.ts`: capa de servicios por modulo.
