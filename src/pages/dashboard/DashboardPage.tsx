@@ -4,6 +4,7 @@ import ReceiptIcon from '@mui/icons-material/Receipt'
 import RestaurantMenuIcon from '@mui/icons-material/RestaurantMenu'
 import StarIcon from '@mui/icons-material/Star'
 import PeopleAltIcon from '@mui/icons-material/PeopleAlt'
+import CampaignIcon from '@mui/icons-material/Campaign'
 import { useNavigate } from 'react-router-dom'
 
 const COLOR_GOLD = '#D4AF37'
@@ -14,6 +15,7 @@ const cards = [
   { label: 'Pedidos', icon: ReceiptIcon, path: '/pedidos' },
   { label: 'Platos en Menú', icon: RestaurantMenuIcon, path: '/menu' },
   { label: 'Plato del Mes', icon: StarIcon, path: '/plato-del-mes' },
+  { label: 'Anuncios', icon: CampaignIcon, path: '/anuncios' },
   { label: 'Usuarios', icon: PeopleAltIcon, path: '/usuarios' },
 ]
 

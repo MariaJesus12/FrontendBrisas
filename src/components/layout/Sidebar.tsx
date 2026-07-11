@@ -16,6 +16,7 @@ import RestaurantMenuIcon from '@mui/icons-material/RestaurantMenu'
 import StarIcon from '@mui/icons-material/Star'
 import ReceiptIcon from '@mui/icons-material/Receipt'
 import PeopleAltIcon from '@mui/icons-material/PeopleAlt'
+import CampaignIcon from '@mui/icons-material/Campaign'
 
 const DRAWER_WIDTH = 240
 const COLOR_GOLD = '#D4AF37'
@@ -26,6 +27,7 @@ const navItems = [
   { label: 'Reservaciones', path: '/reservaciones', icon: <EventSeatIcon /> },
   { label: 'Menú', path: '/menu', icon: <RestaurantMenuIcon /> },
   { label: 'Plato del Mes', path: '/plato-del-mes', icon: <StarIcon /> },
+  { label: 'Anuncios', path: '/anuncios', icon: <CampaignIcon /> },
   { label: 'Pedidos', path: '/pedidos', icon: <ReceiptIcon /> },
   { label: 'Usuarios', path: '/usuarios', icon: <PeopleAltIcon /> },
 ]

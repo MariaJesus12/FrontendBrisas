@@ -9,6 +9,7 @@ import MenuPage from '@/pages/menu/MenuPage'
 import PlatoDelMesPage from '@/pages/plato-del-mes/PlatoDelMesPage'
 import PedidosPage from '@/pages/pedidos/PedidosPage'
 import UsuariosPage from '@/pages/usuarios/UsuariosPage'
+import AnunciosPage from '@/pages/anuncios/AnunciosPage'
 
 export default function AppRouter() {
   return (
@@ -22,6 +23,7 @@ export default function AppRouter() {
             <Route path="/reservaciones" element={<ReservacionesPage />} />
             <Route path="/menu" element={<MenuPage />} />
             <Route path="/plato-del-mes" element={<PlatoDelMesPage />} />
+            <Route path="/anuncios" element={<AnunciosPage />} />
             <Route path="/pedidos" element={<PedidosPage />} />
             <Route path="/usuarios" element={<UsuariosPage />} />
           </Route>

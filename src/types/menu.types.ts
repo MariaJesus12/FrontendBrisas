@@ -1,42 +1,68 @@
-export interface Categoria {
+export interface Category {
   id: number
   nombre: string
   descripcion?: string
 }
 
-export interface Plato {
+export type Categoria = Category
+
+export interface CreateCategoryDto {
+  nombre: string
+  descripcion?: string
+}
+
+export interface Product {
   id: number
+  codigo?: string
   nombre: string
   descripcion: string
   precio: number
   imagen?: string
-  categoriaId: number
-  categoria?: Categoria
+  categoryId: number
+  category?: Category
   disponible: boolean
 }
 
-export interface CreatePlatoDto {
+export type Plato = Product
+
+export interface CreateProductDto {
+  codigo: string
   nombre: string
   descripcion: string
   precio: number
   imagen?: string
-  categoriaId: number
+  categoryId: number
   disponible?: boolean
 }
 
-export interface PlatoDelMes {
+export type CreatePlatoDto = CreateProductDto
+
+export interface DishOfMonth {
   id: number
-  platoId: number
-  plato?: Plato
-  mes: number
-  anio: number
+  productId: number
+  productoId?: number
+  product?: Product
   descripcionEspecial?: string
-  activo: boolean
+  activo?: boolean
+  fechaInicio?: string
+  fechaFin?: string
+  mes?: number
+  anio?: number
+  createdAt?: string
+  updatedAt?: string
 }
 
-export interface CreatePlatoDelMesDto {
-  platoId: number
-  mes: number
-  anio: number
+export type PlatoDelMes = DishOfMonth
+
+export interface CreateDishOfMonthDto {
+  productId: number
+  productoId?: number
+  fechaInicio: string
+  fechaFin: string
   descripcionEspecial?: string
+  activo?: boolean
+  mes?: number
+  anio?: number
 }
+
+export type CreatePlatoDelMesDto = CreateDishOfMonthDto

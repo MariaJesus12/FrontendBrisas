@@ -104,20 +104,28 @@ Respuesta esperada:
   - `PATCH /reservaciones/:id/estado`
   - `DELETE /reservaciones/:id`
 - Menu
-  - `GET /menu/platos`
-  - `GET /menu/platos/:id`
-  - `POST /menu/platos`
-  - `PUT /menu/platos/:id`
-  - `DELETE /menu/platos/:id`
-  - `GET /menu/categorias`
-  - `POST /menu/categorias`
-  - `DELETE /menu/categorias/:id`
+  - `GET /categories`
+  - `GET /categories/:id/products`
+  - `POST /categories`
+  - `PUT /categories/:id`
+  - `DELETE /categories/:id`
+  - `GET /products`
+  - `GET /products/:id`
+  - `POST /products`
+  - `PUT /products/:id`
+  - `DELETE /products/:id`
 - Plato del mes
-  - `GET /plato-del-mes/actual`
-  - `GET /plato-del-mes`
-  - `POST /plato-del-mes`
-  - `PUT /plato-del-mes/:id`
-  - `DELETE /plato-del-mes/:id`
+  - `GET /dish-of-month`
+  - `GET /dish-of-month/history`
+  - `POST /dish-of-month`
+  - `PUT /dish-of-month/:id`
+  - `DELETE /dish-of-month/:id`
+- Anuncios
+  - `GET /announcements`
+  - `GET /announcements/history`
+  - `POST /announcements`
+  - `PUT /announcements/:id`
+  - `DELETE /announcements/:id`
 - Pedidos
   - `GET /pedidos`
   - `GET /pedidos/:id`
