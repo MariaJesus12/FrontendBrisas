@@ -1,6 +1,28 @@
 import api from './api'
 import axios from 'axios'
-import type { Announcement, CreateAnnouncementDto } from '@/types/announcement.types'
+import type { Announcement, AnnouncementType, CreateAnnouncementDto } from '@/types/announcement.types'
+
+function normalizeAnnouncementType(value: string | undefined): AnnouncementType | undefined {
+  if (!value) {
+    return undefined
+  }
+
+  const normalized = value.trim().toUpperCase()
+  if (normalized === 'INFO' || normalized === 'AVISO') {
+    return 'INFORMATIVO'
+  }
+
+  if (
+    normalized === 'PROMOCION' ||
+    normalized === 'EVENTO' ||
+    normalized === 'INFORMATIVO' ||
+    normalized === 'PLATO_DEL_DIA'
+  ) {
+    return normalized
+  }
+
+  return undefined
+}
 
 function buildAnnouncementPayloadVariants(
   data: CreateAnnouncementDto | Partial<CreateAnnouncementDto>,
@@ -46,13 +68,25 @@ function buildAnnouncementPayloadVariants(
       : [{}]
 
   const activeVariants =
-    typeof data.activo === 'number'
-      ? [{ activo: data.activo }, { active: data.activo }]
+    typeof data.activo === 'number' || typeof data.activo === 'boolean'
+      ? [
+          { activo: data.activo },
+          { active: data.activo },
+          { isActive: data.activo },
+          { is_active: data.activo },
+          {
+            activo: typeof data.activo === 'number' ? data.activo === 1 : data.activo,
+          },
+          {
+            active: typeof data.activo === 'number' ? data.activo === 1 : data.activo,
+          },
+        ]
       : [{}]
 
+  const normalizedType = normalizeAnnouncementType(data.tipo)
   const typeVariants =
-    typeof data.tipo === 'string'
-      ? [{ tipo: data.tipo }, { type: data.tipo }]
+    typeof normalizedType === 'string'
+      ? [{ tipo: normalizedType }, { tipoenum: normalizedType }, { type: normalizedType }]
       : [{}]
 
   const variants: Array<Record<string, unknown>> = []

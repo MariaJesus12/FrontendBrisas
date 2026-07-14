@@ -12,6 +12,7 @@ import { toast } from 'react-toastify'
 import { loginSchema, type LoginFormData } from '@/schemas/auth.schema'
 import { authService } from '@/services/auth.service'
 import { useAuth } from '@/hooks/useAuth'
+import { getDefaultRouteByRole } from '@/utils/roles'
 
 // ── Paleta Brisas ───────────────────────────────────────────
 const COLOR_RED = '#C41E3A'
@@ -186,7 +187,7 @@ export default function LoginPage() {
       const response = await authService.login(data)
       login(response.data.token, response.data.user)
       toast.success(`¡Bienvenido, ${response.data.user.nombre}!`)
-      navigate('/dashboard')
+      navigate(getDefaultRouteByRole(response.data.user.rol))
     } catch (error) {
       if (axios.isAxiosError(error)) {
         if (!error.response) {

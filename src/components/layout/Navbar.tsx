@@ -4,6 +4,7 @@ import AccountCircleIcon from '@mui/icons-material/AccountCircle'
 import { useAuth } from '@/hooks/useAuth'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'react-toastify'
+import { normalizeRole } from '@/utils/roles'
 
 const COLOR_GOLD = '#D4AF37'
 const COLOR_TEXT = '#F3E9D2'
@@ -11,6 +12,7 @@ const COLOR_TEXT = '#F3E9D2'
 export default function Navbar() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const role = normalizeRole(user?.rol)
 
   const handleLogout = () => {
     logout()
@@ -38,7 +40,7 @@ export default function Navbar() {
             {user?.nombre}
           </Typography>
           <Chip
-            label={user?.rol}
+            label={role}
             size="small"
             variant="outlined"
             sx={{

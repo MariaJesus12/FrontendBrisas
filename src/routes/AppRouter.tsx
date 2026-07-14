@@ -20,12 +20,19 @@ export default function AppRouter() {
         <Route element={<PrivateRoute />}>
           <Route element={<MainLayout />}>
             <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/reservaciones" element={<ReservacionesPage />} />
-            <Route path="/menu" element={<MenuPage />} />
-            <Route path="/plato-del-mes" element={<PlatoDelMesPage />} />
-            <Route path="/anuncios" element={<AnunciosPage />} />
-            <Route path="/pedidos" element={<PedidosPage />} />
-            <Route path="/usuarios" element={<UsuariosPage />} />
+
+            <Route element={<PrivateRoute allowedRoles={['ADMIN', 'MESERO', 'CAJERO']} />}>
+              <Route path="/mesas" element={<ReservacionesPage />} />
+              <Route path="/reservaciones" element={<ReservacionesPage />} />
+              <Route path="/pedidos" element={<PedidosPage />} />
+            </Route>
+
+            <Route element={<PrivateRoute allowedRoles={['ADMIN']} />}>
+              <Route path="/menu" element={<MenuPage />} />
+              <Route path="/plato-del-mes" element={<PlatoDelMesPage />} />
+              <Route path="/anuncios" element={<AnunciosPage />} />
+              <Route path="/usuarios" element={<UsuariosPage />} />
+            </Route>
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

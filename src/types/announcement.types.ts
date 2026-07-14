@@ -9,10 +9,12 @@ export interface Announcement {
   horaFin?: string
   prioridad?: number
   activo?: number | boolean
-  tipo?: string
+  tipo?: AnnouncementType
   createdAt?: string
   updatedAt?: string
 }
+
+export type AnnouncementType = 'PROMOCION' | 'EVENTO' | 'INFORMATIVO' | 'PLATO_DEL_DIA'
 
 export interface CreateAnnouncementDto {
   titulo: string
@@ -23,6 +25,6 @@ export interface CreateAnnouncementDto {
   horaInicio?: string
   horaFin?: string
   prioridad?: number
-  activo?: number
-  tipo?: string
+  activo?: number | boolean
+  tipo: AnnouncementType
 }

@@ -26,7 +26,7 @@ import { menuService } from '@/services/menu.service'
 import { platoDelMesService } from '@/services/plato-del-mes.service'
 import { announcementsService } from '@/services/announcements.service'
 import type { Category, Product, DishOfMonth } from '@/types/menu.types'
-import type { Announcement } from '@/types/announcement.types'
+import type { Announcement, AnnouncementType } from '@/types/announcement.types'
 
 const COLOR_GOLD = '#D4AF37'
 const COLOR_BLACK = '#070707'
@@ -68,6 +68,69 @@ function toPositiveNumber(value: unknown): number | null {
     return null
   }
   return parsed
+}
+
+function normalizeAnnouncementType(value: unknown): AnnouncementType | undefined {
+  const raw = typeof value === 'string' ? value.trim().toUpperCase() : ''
+
+  if (raw === 'INFO' || raw === 'AVISO') {
+    return 'INFORMATIVO'
+  }
+
+  if (raw === 'PROMOCION' || raw === 'EVENTO' || raw === 'INFORMATIVO' || raw === 'PLATO_DEL_DIA') {
+    return raw
+  }
+
+  return undefined
+}
+
+function isAnnouncementActive(value: unknown): boolean {
+  if (value === undefined || value === null) {
+    return true
+  }
+
+  if (typeof value === 'boolean') {
+    return value
+  }
+
+  if (typeof value === 'number') {
+    return value === 1
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    return normalized === '1' || normalized === 'true' || normalized === 'activo' || normalized === 'active'
+  }
+
+  return false
+}
+
+function toActiveFlag(value: unknown): number {
+  if (typeof value === 'boolean') {
+    return value ? 1 : 0
+  }
+
+  if (typeof value === 'number') {
+    return value === 1 ? 1 : 0
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (
+      normalized === '1' ||
+      normalized === 'true' ||
+      normalized === 'activo' ||
+      normalized === 'activa' ||
+      normalized === 'active' ||
+      normalized === 'publicado' ||
+      normalized === 'published'
+    ) {
+      return 1
+    }
+    return 0
+  }
+
+  return 0
 }
 
 function extractBackendMessage(payload: unknown): string {
@@ -421,7 +484,15 @@ function normalizeAnnouncement(item: unknown): Announcement | null {
   }
 
   const prioridad = Number(record.prioridad ?? record.priority ?? 0)
-  const activoValue = record.activo ?? record.active ?? 0
+  const activoValue =
+    record.activo ??
+    record.active ??
+    record.isActive ??
+    record.is_active ??
+    record.visible ??
+    record.publicado ??
+    record.published ??
+    0
 
   return {
     id,
@@ -476,12 +547,14 @@ function normalizeAnnouncement(item: unknown): Announcement | null {
             ? record.endTime
             : undefined,
     prioridad: Number.isFinite(prioridad) ? prioridad : 0,
-    activo: typeof activoValue === 'boolean' ? (activoValue ? 1 : 0) : Number(activoValue) || 0,
+    activo: toActiveFlag(activoValue),
     tipo:
       typeof record.tipo === 'string'
-        ? record.tipo
+        ? normalizeAnnouncementType(record.tipo)
+        : typeof record.tipoenum === 'string'
+          ? normalizeAnnouncementType(record.tipoenum)
         : typeof record.type === 'string'
-          ? record.type
+          ? normalizeAnnouncementType(record.type)
           : undefined,
     createdAt: typeof record.createdAt === 'string' ? record.createdAt : undefined,
     updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : undefined,
@@ -510,6 +583,111 @@ function normalizeAnnouncementsPayload(payload: unknown): Announcement[] {
   }
 
   return []
+}
+
+function formatAnnouncementDate(value: string | undefined): string {
+  if (!value) {
+    return '-'
+  }
+
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!match) {
+    return value
+  }
+
+  return `${match[3]}/${match[2]}/${match[1]}`
+}
+
+function formatAnnouncementTime(value: string | undefined): string {
+  if (!value) {
+    return '-'
+  }
+
+  const match = value.match(/^(\d{2}):(\d{2})(?::\d{2})?$/)
+  if (!match) {
+    return value
+  }
+
+  return `${match[1]}:${match[2]}`
+}
+
+function formatAnnouncementDateRange(start: string | undefined, end: string | undefined): string {
+  const from = formatAnnouncementDate(start)
+  const to = formatAnnouncementDate(end)
+
+  if (from === '-' && to === '-') {
+    return 'Sin rango de fechas'
+  }
+
+  if (from !== '-' && to !== '-') {
+    return `Del ${from} al ${to}`
+  }
+
+  if (from !== '-') {
+    return `Desde ${from}`
+  }
+
+  return `Hasta ${to}`
+}
+
+function formatAnnouncementTimeRange(start: string | undefined, end: string | undefined): string {
+  const from = formatAnnouncementTime(start)
+  const to = formatAnnouncementTime(end)
+
+  if (from === '-' && to === '-') {
+    return 'Sin rango de horas'
+  }
+
+  if (from !== '-' && to !== '-') {
+    return `De ${from} a ${to}`
+  }
+
+  if (from !== '-') {
+    return `Desde ${from}`
+  }
+
+  return `Hasta ${to}`
+}
+
+function getAnnouncementTypeBadge(type: AnnouncementType | undefined): {
+  label: string
+  border: string
+  background: string
+  color: string
+} {
+  if (type === 'EVENTO') {
+    return {
+      label: 'Evento',
+      border: 'rgba(72, 191, 255, 0.65)',
+      background: 'rgba(72, 191, 255, 0.16)',
+      color: '#bde8ff',
+    }
+  }
+
+  if (type === 'INFORMATIVO') {
+    return {
+      label: 'Informativo',
+      border: 'rgba(126, 226, 170, 0.65)',
+      background: 'rgba(126, 226, 170, 0.16)',
+      color: '#d6ffe9',
+    }
+  }
+
+  if (type === 'PLATO_DEL_DIA') {
+    return {
+      label: 'Plato del Dia',
+      border: 'rgba(255, 158, 102, 0.75)',
+      background: 'rgba(255, 158, 102, 0.17)',
+      color: '#ffe1cc',
+    }
+  }
+
+  return {
+    label: 'Promocion',
+    border: 'rgba(212,175,55,0.8)',
+    background: 'rgba(212,175,55,0.15)',
+    color: '#f7e4a6',
+  }
 }
 
 export default function PublicMenuPage() {
@@ -560,7 +738,7 @@ export default function PublicMenuPage() {
         setDishOfMonth(normalizeDishPayload(dishOfMonthResponse.data))
         setAnnouncements(
           normalizeAnnouncementsPayload(announcementsResponse.data)
-            .filter((announcement) => Number(announcement.activo ?? 0) === 1)
+            .filter((announcement) => isAnnouncementActive(announcement.activo))
             .sort((a, b) => (b.prioridad ?? 0) - (a.prioridad ?? 0)),
         )
         setErrorMessage('')
@@ -1042,14 +1220,157 @@ export default function PublicMenuPage() {
                   </Typography>
                 ) : null}
                 {announcements.map((item) => (
-                  <Box key={item.id} sx={{ borderLeft: `2px solid ${COLOR_GOLD}`, pl: 1.2 }}>
-                    <Typography sx={{ fontFamily: '"Playfair Display", serif', fontSize: '1.05rem' }}>
-                      {item.titulo}
-                    </Typography>
-                    <Typography sx={{ fontFamily: '"Cormorant Garamond", serif', fontSize: '1rem', opacity: 1, color: COLOR_TEXT_MUTED }}>
-                      {item.descripcion ?? 'Sin descripción disponible.'}
-                    </Typography>
-                  </Box>
+                  (() => {
+                    const typeBadge = getAnnouncementTypeBadge(item.tipo)
+
+                    return (
+                      <Card
+                        key={item.id}
+                        sx={{
+                          border: '1px solid rgba(212,175,55,0.4)',
+                          borderRadius: 2.4,
+                          overflow: 'hidden',
+                          background:
+                            'linear-gradient(145deg, rgba(14,14,14,0.82) 0%, rgba(20,15,10,0.86) 100%)',
+                          boxShadow: '0 12px 30px rgba(0,0,0,0.26), inset 0 0 18px rgba(212,175,55,0.06)',
+                          transition: 'transform 0.24s ease, box-shadow 0.24s ease, border-color 0.24s ease',
+                          '&:hover': {
+                            transform: 'translateY(-3px)',
+                            borderColor: 'rgba(212,175,55,0.7)',
+                            boxShadow: '0 16px 36px rgba(0,0,0,0.34), inset 0 0 24px rgba(212,175,55,0.1)',
+                          },
+                        }}
+                      >
+                        {item.imagen ? (
+                          <Box sx={{ position: 'relative' }}>
+                            <Box
+                              component="img"
+                              src={item.imagen}
+                              alt={item.titulo}
+                              sx={{
+                                width: '100%',
+                                height: { xs: 158, sm: 188 },
+                                objectFit: 'cover',
+                                display: 'block',
+                              }}
+                            />
+                            <Box
+                              sx={{
+                                position: 'absolute',
+                                inset: 0,
+                                background:
+                                  'linear-gradient(180deg, rgba(7,7,7,0.05) 0%, rgba(7,7,7,0.8) 100%)',
+                              }}
+                            />
+                            <Chip
+                              label={typeBadge.label}
+                              size="small"
+                              sx={{
+                                position: 'absolute',
+                                top: 10,
+                                left: 10,
+                                border: `1px solid ${typeBadge.border}`,
+                                color: typeBadge.color,
+                                backgroundColor: typeBadge.background,
+                                backdropFilter: 'blur(4px)',
+                                '& .MuiChip-label': {
+                                  fontFamily: '"Cormorant Garamond", serif',
+                                  fontWeight: 700,
+                                  letterSpacing: '0.4px',
+                                },
+                              }}
+                            />
+                          </Box>
+                        ) : null}
+
+                        <CardContent sx={{ p: 1.8, '&:last-child': { pb: 1.8 } }}>
+                          <Stack spacing={1.1}>
+                            {!item.imagen ? (
+                              <Chip
+                                label={typeBadge.label}
+                                size="small"
+                                sx={{
+                                  width: 'fit-content',
+                                  border: `1px solid ${typeBadge.border}`,
+                                  color: typeBadge.color,
+                                  backgroundColor: typeBadge.background,
+                                  '& .MuiChip-label': {
+                                    fontFamily: '"Cormorant Garamond", serif',
+                                    fontWeight: 700,
+                                    letterSpacing: '0.4px',
+                                  },
+                                }}
+                              />
+                            ) : null}
+
+                            <Typography
+                              sx={{
+                                fontFamily: '"Playfair Display", serif',
+                                fontSize: { xs: '1.1rem', sm: '1.18rem' },
+                                lineHeight: 1.2,
+                                color: COLOR_TEXT_SOFT,
+                              }}
+                            >
+                              {item.titulo}
+                            </Typography>
+
+                            {item.descripcion ? (
+                              <Typography
+                                sx={{
+                                  fontFamily: '"Cormorant Garamond", serif',
+                                  fontSize: '1.03rem',
+                                  color: COLOR_TEXT_MUTED,
+                                  lineHeight: 1.4,
+                                }}
+                              >
+                                {item.descripcion}
+                              </Typography>
+                            ) : null}
+
+                            <Box
+                              sx={{
+                                display: 'grid',
+                                gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' },
+                                gap: 0.8,
+                                pt: 0.2,
+                              }}
+                            >
+                              <Chip
+                                size="small"
+                                label={formatAnnouncementDateRange(item.fechaInicio, item.fechaFin)}
+                                variant="outlined"
+                                sx={{
+                                  justifyContent: 'flex-start',
+                                  borderColor: 'rgba(212,175,55,0.4)',
+                                  backgroundColor: 'rgba(212,175,55,0.08)',
+                                  '& .MuiChip-label': {
+                                    color: COLOR_TEXT_SOFT,
+                                    width: '100%',
+                                    textAlign: 'left',
+                                  },
+                                }}
+                              />
+                              <Chip
+                                size="small"
+                                label={formatAnnouncementTimeRange(item.horaInicio, item.horaFin)}
+                                variant="outlined"
+                                sx={{
+                                  justifyContent: 'flex-start',
+                                  borderColor: 'rgba(212,175,55,0.4)',
+                                  backgroundColor: 'rgba(212,175,55,0.08)',
+                                  '& .MuiChip-label': {
+                                    color: COLOR_TEXT_SOFT,
+                                    width: '100%',
+                                    textAlign: 'left',
+                                  },
+                                }}
+                              />
+                            </Box>
+                          </Stack>
+                        </CardContent>
+                      </Card>
+                    )
+                  })()
                 ))}
               </Stack>
             </CardContent>

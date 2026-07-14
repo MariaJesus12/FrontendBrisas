@@ -10,6 +10,13 @@ export interface CreateUserRequest {
   rol_id: number
 }
 
+export interface UpdateUserRequest {
+  nombre: string
+  usuario: string
+  rol_id: number
+  password?: string
+}
+
 export interface CreatedUser {
   id: number
   nombre: string

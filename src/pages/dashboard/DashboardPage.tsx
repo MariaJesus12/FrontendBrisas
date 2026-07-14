@@ -6,11 +6,14 @@ import StarIcon from '@mui/icons-material/Star'
 import PeopleAltIcon from '@mui/icons-material/PeopleAlt'
 import CampaignIcon from '@mui/icons-material/Campaign'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '@/hooks/useAuth'
+import { normalizeRole } from '@/utils/roles'
 
 const COLOR_GOLD = '#D4AF37'
 const COLOR_TEXT = '#F3E9D2'
 
-const cards = [
+const adminCards = [
+  { label: 'Mesas', icon: EventSeatIcon, path: '/mesas' },
   { label: 'Reservaciones', icon: EventSeatIcon, path: '/reservaciones' },
   { label: 'Pedidos', icon: ReceiptIcon, path: '/pedidos' },
   { label: 'Platos en Menú', icon: RestaurantMenuIcon, path: '/menu' },
@@ -19,8 +22,17 @@ const cards = [
   { label: 'Usuarios', icon: PeopleAltIcon, path: '/usuarios' },
 ]
 
+const staffCards = [
+  { label: 'Mesas', icon: EventSeatIcon, path: '/mesas' },
+  { label: 'Reservaciones', icon: EventSeatIcon, path: '/reservaciones' },
+  { label: 'Pedidos', icon: ReceiptIcon, path: '/pedidos' },
+]
+
 export default function DashboardPage() {
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const role = normalizeRole(user?.rol)
+  const cards = role === 'ADMIN' ? adminCards : staffCards
 
   return (
     <Box sx={{ color: COLOR_TEXT }}>
@@ -32,7 +44,9 @@ export default function DashboardPage() {
         Dashboard
       </Typography>
       <Typography variant="body1" sx={{ mb: 3, color: 'rgba(243,233,210,0.8)' }}>
-        Bienvenido al panel de gestión de Brisas
+        {role === 'ADMIN'
+          ? 'Bienvenido al panel de gestión de Brisas'
+          : 'Panel operativo para mesas, reservaciones y pedidos'}
       </Typography>
       <Grid container spacing={3}>
         {cards.map(({ label, icon: Icon, path }) => (

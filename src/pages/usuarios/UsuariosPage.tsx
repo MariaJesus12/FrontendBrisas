@@ -5,6 +5,10 @@ import {
   Box,
   Button,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   IconButton,
   InputAdornment,
   MenuItem,
@@ -22,11 +26,20 @@ import PeopleAltIcon from '@mui/icons-material/PeopleAlt'
 import PersonAddAlt1Icon from '@mui/icons-material/PersonAddAlt1'
 import Visibility from '@mui/icons-material/Visibility'
 import VisibilityOff from '@mui/icons-material/VisibilityOff'
+import EditIcon from '@mui/icons-material/Edit'
+import DeleteIcon from '@mui/icons-material/Delete'
 import type { User } from '@/types/auth.types'
 import { usuariosService } from '@/services/usuarios.service'
-import type { CreatedUser, RoleOption } from '@/types/usuario.types'
+import type { CreatedUser, RoleOption, UpdateUserRequest } from '@/types/usuario.types'
 
 interface NewUserForm {
+  nombre: string
+  usuario: string
+  rol_id: string
+  password: string
+}
+
+interface EditUserForm {
   nombre: string
   usuario: string
   rol_id: string
@@ -36,6 +49,13 @@ interface NewUserForm {
 const initialUsers: User[] = []
 
 const initialForm: NewUserForm = {
+  nombre: '',
+  usuario: '',
+  rol_id: '',
+  password: '',
+}
+
+const initialEditForm: EditUserForm = {
   nombre: '',
   usuario: '',
   rol_id: '',
@@ -174,6 +194,27 @@ function getRoleDisplayName(roleValue: string, roles: RoleOption[]): string {
   return normalized
 }
 
+function getRoleIdForForm(roleValue: string, roles: RoleOption[]): string {
+  const normalized = String(roleValue ?? '').trim()
+  if (!normalized) {
+    return String(roles[0]?.id ?? '')
+  }
+
+  const numericRoleId = Number(normalized)
+  if (Number.isFinite(numericRoleId) && numericRoleId > 0) {
+    return String(numericRoleId)
+  }
+
+  const matchedByName = roles.find(
+    (role) => role.nombre.trim().toLowerCase() === normalized.toLowerCase(),
+  )
+  if (matchedByName) {
+    return String(matchedByName.id)
+  }
+
+  return String(roles[0]?.id ?? '')
+}
+
 function normalizeUsersPayload(payload: unknown): Array<CreatedUser | User> {
   if (Array.isArray(payload)) {
     return payload as Array<CreatedUser | User>
@@ -250,6 +291,10 @@ export default function UsuariosPage() {
   const [loadingUsers, setLoadingUsers] = useState<boolean>(true)
   const [submitting, setSubmitting] = useState<boolean>(false)
   const [showPassword, setShowPassword] = useState<boolean>(false)
+  const [editingUser, setEditingUser] = useState<User | null>(null)
+  const [editForm, setEditForm] = useState<EditUserForm>(initialEditForm)
+  const [editingSubmitting, setEditingSubmitting] = useState<boolean>(false)
+  const [deletingUserId, setDeletingUserId] = useState<number | null>(null)
 
   useEffect(() => {
     const loadRoles = async () => {
@@ -349,6 +394,119 @@ export default function UsuariosPage() {
       }
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const openEditDialog = (user: User) => {
+    setEditingUser(user)
+    setEditForm({
+      nombre: user.nombre,
+      usuario: user.email,
+      rol_id: getRoleIdForForm(user.rol, roles),
+      password: '',
+    })
+  }
+
+  const closeEditDialog = () => {
+    if (editingSubmitting) {
+      return
+    }
+    setEditingUser(null)
+    setEditForm(initialEditForm)
+  }
+
+  const handleEditChange = (field: keyof EditUserForm, value: string) => {
+    setEditForm((prev) => ({ ...prev, [field]: value }))
+  }
+
+  const handleUpdateUser = async () => {
+    if (!editingUser) {
+      return
+    }
+
+    if (!editForm.nombre.trim() || !editForm.usuario.trim() || !editForm.rol_id.trim()) {
+      setMessage('Completa nombre, usuario y rol para actualizar.')
+      return
+    }
+
+    const parsedRoleId = Number(editForm.rol_id)
+    if (!Number.isFinite(parsedRoleId) || parsedRoleId <= 0) {
+      setMessage('El rol seleccionado no es válido para actualizar.')
+      return
+    }
+
+    const payload: UpdateUserRequest = {
+      nombre: editForm.nombre.trim(),
+      usuario: editForm.usuario.trim(),
+      rol_id: parsedRoleId,
+      ...(editForm.password.trim() ? { password: editForm.password } : {}),
+    }
+
+    setEditingSubmitting(true)
+    try {
+      await usuariosService.updateUser(editingUser.id, payload)
+      setUsers((prev) =>
+        prev.map((user) =>
+          user.id === editingUser.id
+            ? {
+                ...user,
+                nombre: payload.nombre,
+                email: payload.usuario,
+                rol: String(payload.rol_id),
+              }
+            : user,
+        ),
+      )
+      setMessage('Usuario actualizado correctamente.')
+      closeEditDialog()
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const backendMessage = extractBackendMessage(error.response?.data)
+        if (error.response?.status === 404) {
+          setMessage(
+            backendMessage ||
+              'No se encontró el endpoint PUT /api/users/:id en el backend (404).',
+          )
+        } else {
+          setMessage(backendMessage || 'No se pudo actualizar el usuario.')
+        }
+      } else {
+        setMessage('No se pudo actualizar el usuario.')
+      }
+    } finally {
+      setEditingSubmitting(false)
+    }
+  }
+
+  const handleDeleteUser = async (user: User) => {
+    const confirmed = window.confirm(
+      `¿Seguro que quieres eliminar al usuario "${user.nombre}" (ID ${user.id})?`,
+    )
+    if (!confirmed) {
+      return
+    }
+
+    setDeletingUserId(user.id)
+    try {
+      await usuariosService.deleteUser(user.id)
+      setUsers((prev) => prev.filter((item) => item.id !== user.id))
+      setMessage('Usuario eliminado correctamente.')
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const backendMessage = extractBackendMessage(error.response?.data)
+        if (error.response?.status === 404) {
+          setMessage(
+            backendMessage ||
+              'No se encontró el endpoint DELETE /api/users/:id en el backend (404).',
+          )
+        } else {
+          setMessage(backendMessage || 'No se pudo eliminar el usuario.')
+        }
+      } else {
+        setMessage('No se pudo eliminar el usuario.')
+      }
+    } finally {
+      setDeletingUserId(null)
     }
   }
 
@@ -559,12 +717,13 @@ export default function UsuariosPage() {
                 <TableCell>Nombre</TableCell>
                 <TableCell>Usuario</TableCell>
                 <TableCell>Rol</TableCell>
+                <TableCell align="right">Acciones</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {users.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} sx={{ color: 'rgba(243,233,210,0.75)', textAlign: 'center' }}>
+                  <TableCell colSpan={5} sx={{ color: 'rgba(243,233,210,0.75)', textAlign: 'center' }}>
                     No hay usuarios para mostrar.
                   </TableCell>
                 </TableRow>
@@ -575,12 +734,89 @@ export default function UsuariosPage() {
                   <TableCell>{user.nombre}</TableCell>
                   <TableCell>{user.email}</TableCell>
                   <TableCell>{getRoleDisplayName(user.rol, roles)}</TableCell>
+                  <TableCell align="right">
+                    <Stack direction="row" spacing={0.5} sx={{ justifyContent: 'flex-end' }}>
+                      <IconButton
+                        size="small"
+                        onClick={() => openEditDialog(user)}
+                        aria-label={`Editar usuario ${user.nombre}`}
+                        sx={{ color: COLOR_GOLD }}
+                      >
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                      <IconButton
+                        size="small"
+                        onClick={() => handleDeleteUser(user)}
+                        disabled={deletingUserId === user.id}
+                        aria-label={`Eliminar usuario ${user.nombre}`}
+                        sx={{ color: '#ff9090' }}
+                      >
+                        {deletingUserId === user.id ? (
+                          <CircularProgress size={16} color="inherit" />
+                        ) : (
+                          <DeleteIcon fontSize="small" />
+                        )}
+                      </IconButton>
+                    </Stack>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         </Paper>
       </Stack>
+
+      <Dialog open={Boolean(editingUser)} onClose={closeEditDialog} fullWidth maxWidth="sm">
+        <DialogTitle>Editar Usuario</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <TextField
+              label="Nombre"
+              value={editForm.nombre}
+              onChange={(e) => handleEditChange('nombre', e.target.value)}
+              fullWidth
+            />
+
+            <TextField
+              label="Usuario"
+              value={editForm.usuario}
+              onChange={(e) => handleEditChange('usuario', e.target.value)}
+              fullWidth
+            />
+
+            <TextField
+              label="Rol"
+              select
+              value={editForm.rol_id}
+              onChange={(e) => handleEditChange('rol_id', e.target.value)}
+              fullWidth
+              disabled={loadingRoles}
+            >
+              {roles.map((role) => (
+                <MenuItem key={role.id} value={String(role.id)}>
+                  {role.nombre}
+                </MenuItem>
+              ))}
+            </TextField>
+
+            <TextField
+              label="Nueva clave (opcional)"
+              type="password"
+              value={editForm.password}
+              onChange={(e) => handleEditChange('password', e.target.value)}
+              fullWidth
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeEditDialog} disabled={editingSubmitting}>
+            Cancelar
+          </Button>
+          <Button onClick={handleUpdateUser} variant="contained" disabled={editingSubmitting}>
+            {editingSubmitting ? <CircularProgress size={18} color="inherit" /> : 'Guardar cambios'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

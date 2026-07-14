@@ -24,7 +24,7 @@ import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import ImageIcon from '@mui/icons-material/Image'
-import type { Announcement, CreateAnnouncementDto } from '@/types/announcement.types'
+import type { Announcement, AnnouncementType, CreateAnnouncementDto } from '@/types/announcement.types'
 import { announcementsService } from '@/services/announcements.service'
 
 const COLOR_GOLD = '#D4AF37'
@@ -44,7 +44,26 @@ interface AnnouncementFormState {
   tipo: string
 }
 
-const ANNOUNCEMENT_TYPES = ['PROMOCION', 'EVENTO', 'INFO', 'AVISO']
+const ANNOUNCEMENT_TYPES: AnnouncementType[] = [
+  'PROMOCION',
+  'EVENTO',
+  'INFORMATIVO',
+  'PLATO_DEL_DIA',
+]
+
+function normalizeAnnouncementType(value: unknown): AnnouncementType {
+  const raw = typeof value === 'string' ? value.trim().toUpperCase() : ''
+
+  if (raw === 'INFO' || raw === 'AVISO') {
+    return 'INFORMATIVO'
+  }
+
+  if (raw === 'PROMOCION' || raw === 'EVENTO' || raw === 'INFORMATIVO' || raw === 'PLATO_DEL_DIA') {
+    return raw
+  }
+
+  return 'PROMOCION'
+}
 
 function getTodayISODate(): string {
   return new Date().toISOString().slice(0, 10)
@@ -116,6 +135,34 @@ function toPositiveNumber(value: unknown): number | null {
   return parsed
 }
 
+function toActiveFlag(value: unknown): number {
+  if (typeof value === 'boolean') {
+    return value ? 1 : 0
+  }
+
+  if (typeof value === 'number') {
+    return value === 1 ? 1 : 0
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (
+      normalized === '1' ||
+      normalized === 'true' ||
+      normalized === 'activo' ||
+      normalized === 'activa' ||
+      normalized === 'active' ||
+      normalized === 'publicado' ||
+      normalized === 'published'
+    ) {
+      return 1
+    }
+    return 0
+  }
+
+  return 0
+}
+
 function normalizeAnnouncement(item: unknown): Announcement | null {
   if (typeof item !== 'object' || item === null) {
     return null
@@ -128,7 +175,15 @@ function normalizeAnnouncement(item: unknown): Announcement | null {
   }
 
   const prioridad = Number(record.prioridad ?? record.priority ?? 0)
-  const activoValue = record.activo ?? record.active ?? 0
+  const activoValue =
+    record.activo ??
+    record.active ??
+    record.isActive ??
+    record.is_active ??
+    record.visible ??
+    record.publicado ??
+    record.published ??
+    0
 
   return {
     id,
@@ -183,12 +238,14 @@ function normalizeAnnouncement(item: unknown): Announcement | null {
             ? record.endTime
             : undefined,
     prioridad: Number.isFinite(prioridad) ? prioridad : 0,
-    activo: typeof activoValue === 'boolean' ? (activoValue ? 1 : 0) : Number(activoValue) || 0,
+    activo: toActiveFlag(activoValue),
     tipo:
       typeof record.tipo === 'string'
-        ? record.tipo
+        ? normalizeAnnouncementType(record.tipo)
+        : typeof record.tipoenum === 'string'
+          ? normalizeAnnouncementType(record.tipoenum)
         : typeof record.type === 'string'
-          ? record.type
+          ? normalizeAnnouncementType(record.type)
           : undefined,
     createdAt: typeof record.createdAt === 'string' ? record.createdAt : undefined,
     updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : undefined,
@@ -269,8 +326,8 @@ const initialForm: AnnouncementFormState = {
   imagen: '',
   fechaInicio: defaultDate,
   fechaFin: addDaysISODate(defaultDate, 21),
-  horaInicio: '08:00',
-  horaFin: '20:00',
+  horaInicio: '00:00',
+  horaFin: '23:59',
   prioridad: '10',
   activo: '1',
   tipo: 'PROMOCION',
@@ -353,11 +410,11 @@ export default function AnunciosPage() {
       imagen: announcement.imagen ?? '',
       fechaInicio: formatDateInput(announcement.fechaInicio),
       fechaFin: formatDateInput(announcement.fechaFin),
-      horaInicio: announcement.horaInicio ?? '08:00',
-      horaFin: announcement.horaFin ?? '20:00',
+      horaInicio: announcement.horaInicio ?? '00:00',
+      horaFin: announcement.horaFin ?? '23:59',
       prioridad: String(announcement.prioridad ?? 10),
       activo: String(typeof announcement.activo === 'boolean' ? (announcement.activo ? 1 : 0) : Number(announcement.activo) || 0),
-      tipo: announcement.tipo ?? 'PROMOCION',
+      tipo: normalizeAnnouncementType(announcement.tipo),
     })
     setIsDialogOpen(true)
   }
@@ -402,6 +459,8 @@ export default function AnunciosPage() {
       return
     }
 
+    const tipo = normalizeAnnouncementType(form.tipo)
+
     const payload: CreateAnnouncementDto = {
       titulo: form.titulo.trim(),
       descripcion: form.descripcion.trim() || undefined,
@@ -411,8 +470,8 @@ export default function AnunciosPage() {
       horaInicio: form.horaInicio || undefined,
       horaFin: form.horaFin || undefined,
       prioridad,
-      activo,
-      tipo: form.tipo.trim() || undefined,
+      activo: activo === 1,
+      tipo,
     }
 
     setSubmitting(true)

@@ -17,13 +17,16 @@ import StarIcon from '@mui/icons-material/Star'
 import ReceiptIcon from '@mui/icons-material/Receipt'
 import PeopleAltIcon from '@mui/icons-material/PeopleAlt'
 import CampaignIcon from '@mui/icons-material/Campaign'
+import { useAuth } from '@/hooks/useAuth'
+import { normalizeRole } from '@/utils/roles'
 
 const DRAWER_WIDTH = 240
 const COLOR_GOLD = '#D4AF37'
 const COLOR_TEXT = '#F3E9D2'
 
-const navItems = [
+const adminNavItems = [
   { label: 'Dashboard', path: '/dashboard', icon: <DashboardIcon /> },
+  { label: 'Mesas', path: '/mesas', icon: <EventSeatIcon /> },
   { label: 'Reservaciones', path: '/reservaciones', icon: <EventSeatIcon /> },
   { label: 'Menú', path: '/menu', icon: <RestaurantMenuIcon /> },
   { label: 'Plato del Mes', path: '/plato-del-mes', icon: <StarIcon /> },
@@ -32,9 +35,19 @@ const navItems = [
   { label: 'Usuarios', path: '/usuarios', icon: <PeopleAltIcon /> },
 ]
 
+const staffNavItems = [
+  { label: 'Dashboard', path: '/dashboard', icon: <DashboardIcon /> },
+  { label: 'Mesas', path: '/mesas', icon: <EventSeatIcon /> },
+  { label: 'Reservaciones', path: '/reservaciones', icon: <EventSeatIcon /> },
+  { label: 'Pedidos', path: '/pedidos', icon: <ReceiptIcon /> },
+]
+
 export default function Sidebar() {
   const navigate = useNavigate()
   const location = useLocation()
+  const { user } = useAuth()
+  const role = normalizeRole(user?.rol)
+  const navItems = role === 'ADMIN' ? adminNavItems : staffNavItems
 
   return (
     <Drawer
