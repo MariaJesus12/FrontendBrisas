@@ -46,7 +46,7 @@ export default function Sidebar() {
   const navigate = useNavigate()
   const location = useLocation()
   const { user } = useAuth()
-  const role = normalizeRole(user?.rol)
+  const role = normalizeRole(user)
   const navItems = role === 'ADMIN' ? adminNavItems : staffNavItems
 
   return (

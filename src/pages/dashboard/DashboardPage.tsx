@@ -31,7 +31,7 @@ const staffCards = [
 export default function DashboardPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
-  const role = normalizeRole(user?.rol)
+  const role = normalizeRole(user)
   const cards = role === 'ADMIN' ? adminCards : staffCards
 
   return (

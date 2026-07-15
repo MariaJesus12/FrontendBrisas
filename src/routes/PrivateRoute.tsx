@@ -13,8 +13,8 @@ export default function PrivateRoute({ allowedRoles }: PrivateRouteProps) {
     return <Navigate to="/login" replace />
   }
 
-  if (allowedRoles && !hasRequiredRole(user?.rol, allowedRoles)) {
-    return <Navigate to={getDefaultRouteByRole(user?.rol)} replace />
+  if (allowedRoles && !hasRequiredRole(user, allowedRoles)) {
+    return <Navigate to={getDefaultRouteByRole(user)} replace />
   }
 
   return <Outlet />

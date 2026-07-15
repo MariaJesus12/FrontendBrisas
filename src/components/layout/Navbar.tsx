@@ -12,7 +12,7 @@ const COLOR_TEXT = '#F3E9D2'
 export default function Navbar() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
-  const role = normalizeRole(user?.rol)
+  const role = normalizeRole(user)
 
   const handleLogout = () => {
     logout()

@@ -187,7 +187,7 @@ export default function LoginPage() {
       const response = await authService.login(data)
       login(response.data.token, response.data.user)
       toast.success(`¡Bienvenido, ${response.data.user.nombre}!`)
-      navigate(getDefaultRouteByRole(response.data.user.rol))
+      navigate(getDefaultRouteByRole(response.data.user))
     } catch (error) {
       if (axios.isAxiosError(error)) {
         if (!error.response) {

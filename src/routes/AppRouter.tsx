@@ -4,6 +4,7 @@ import MainLayout from '@/components/layout/MainLayout'
 import LoginPage from '@/pages/auth/LoginPage'
 import PublicMenuPage from '@/pages/public/PublicMenuPage'
 import DashboardPage from '@/pages/dashboard/DashboardPage'
+import MesasPage from '@/pages/mesas/MesasPage'
 import ReservacionesPage from '@/pages/reservaciones/ReservacionesPage'
 import MenuPage from '@/pages/menu/MenuPage'
 import PlatoDelMesPage from '@/pages/plato-del-mes/PlatoDelMesPage'
@@ -22,7 +23,7 @@ export default function AppRouter() {
             <Route path="/dashboard" element={<DashboardPage />} />
 
             <Route element={<PrivateRoute allowedRoles={['ADMIN', 'MESERO', 'CAJERO']} />}>
-              <Route path="/mesas" element={<ReservacionesPage />} />
+              <Route path="/mesas" element={<MesasPage />} />
               <Route path="/reservaciones" element={<ReservacionesPage />} />
               <Route path="/pedidos" element={<PedidosPage />} />
             </Route>
