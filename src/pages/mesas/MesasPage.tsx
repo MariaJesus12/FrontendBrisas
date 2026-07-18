@@ -94,7 +94,11 @@ const initialPedidoForm: PedidoMesaFormState = {
   ],
 }
 
-const ACTIVE_ORDER_STATES = ['BORRADOR', 'EN_PREPARACION', 'LISTO']
+const OPEN_ORDER_STATES = ['BORRADOR', 'EN_PREPARACION', 'COCINA', 'LISTO']
+
+function normalizePedidoEstado(value: unknown): string {
+  return String(value ?? '').trim().toUpperCase()
+}
 
 function extractBackendMessage(payload: unknown): string {
   if (typeof payload === 'string') {
@@ -276,6 +280,7 @@ export default function MesasPage() {
   const [selectedMesa, setSelectedMesa] = useState<Mesa | null>(null)
   const [selectedPedido, setSelectedPedido] = useState<Pedido | null>(null)
   const [currentPedidoDetails, setCurrentPedidoDetails] = useState<PedidoDetalle[]>([])
+  const [openPedidosByMesa, setOpenPedidosByMesa] = useState<Record<number, Pedido>>({})
   const [pedidoLoading, setPedidoLoading] = useState(false)
   const [pedidoForm, setPedidoForm] = useState<PedidoMesaFormState>(initialPedidoForm)
 
@@ -294,9 +299,37 @@ export default function MesasPage() {
     setError(null)
 
     try {
-      const [mesasResponse, productsResponse] = await Promise.all([mesasService.getAll(), menuService.getProducts()])
+      const [mesasResponse, productsResponse, pedidosResponse] = await Promise.all([
+        mesasService.getAll(),
+        menuService.getProducts(),
+        pedidosService.getAll({ tipo: 'MESA' }),
+      ])
       setMesas(unwrapMesasPayload(mesasResponse.data))
       setProducts(unwrapProductsPayload(productsResponse.data))
+      const pedidos = unwrapPedidosPayload(pedidosResponse.data)
+      const openByMesa = pedidos
+        .filter((pedido) => {
+          const mesaId = Number(pedido.mesaId ?? pedido.mesa?.id ?? 0)
+          if (!Number.isFinite(mesaId) || mesaId <= 0) {
+            return false
+          }
+
+          return OPEN_ORDER_STATES.includes(normalizePedidoEstado(pedido.estado))
+        })
+        .sort((left, right) => {
+          const rightDate = right.createdAt ? new Date(right.createdAt).getTime() : 0
+          const leftDate = left.createdAt ? new Date(left.createdAt).getTime() : 0
+          return rightDate - leftDate
+        })
+        .reduce<Record<number, Pedido>>((acc, pedido) => {
+          const mesaId = Number(pedido.mesaId ?? pedido.mesa?.id ?? 0)
+          if (!acc[mesaId]) {
+            acc[mesaId] = pedido
+          }
+          return acc
+        }, {})
+
+      setOpenPedidosByMesa(openByMesa)
     } catch (requestError) {
       const backendMessage =
         axios.isAxiosError(requestError) && requestError.response
@@ -476,7 +509,7 @@ export default function MesasPage() {
   }
 
   function isActivePedido(pedido: Pedido): boolean {
-    return ACTIVE_ORDER_STATES.includes(String(pedido.estado).trim().toUpperCase())
+    return OPEN_ORDER_STATES.includes(normalizePedidoEstado(pedido.estado))
   }
 
   async function loadMesaPedido(mesaId: number) {
@@ -486,7 +519,7 @@ export default function MesasPage() {
       const response = await pedidosService.getAll({ mesaId, tipo: 'MESA' })
       const pedidos = unwrapPedidosPayload(response.data)
       const pedidoSeleccionado = pedidos
-        .filter((pedido) => isActivePedido(pedido) || String(pedido.estado).trim().toUpperCase() === 'FACTURADO')
+        .filter((pedido) => isActivePedido(pedido))
         .sort((left, right) => {
           const rightDate = right.createdAt ? new Date(right.createdAt).getTime() : 0
           const leftDate = left.createdAt ? new Date(left.createdAt).getTime() : 0
@@ -528,6 +561,10 @@ export default function MesasPage() {
   }
 
   function openPedidoDrawer(mesa: Mesa) {
+    if (!mesa.activa) {
+      return
+    }
+
     setSelectedMesa(mesa)
     setOrderDrawerOpen(true)
     void loadMesaPedido(mesa.id)
@@ -586,7 +623,17 @@ export default function MesasPage() {
     })
   }
 
-  async function handleSavePedido() {
+  function hasDraftPedidoLineData(): boolean {
+    return pedidoForm.lineas.some(
+      (linea) =>
+        linea.codigoProducto.trim() ||
+        linea.productoId.trim() ||
+        linea.precioUnitario.trim() ||
+        linea.observacion.trim(),
+    )
+  }
+
+  async function handleSavePedido(): Promise<boolean> {
     const parsedLineas = pedidoForm.lineas.map((linea) => ({
       productoId: Number(linea.productoId),
       cantidad: Number(linea.cantidad),
@@ -607,7 +654,7 @@ export default function MesasPage() {
     if (!validation.success) {
       const firstIssue = validation.error.issues[0]
       toast.error(firstIssue?.message ?? 'Revisa el pedido antes de guardarlo.')
-      return
+      return false
     }
 
     const payload: CreatePedidoDto = {
@@ -637,11 +684,19 @@ export default function MesasPage() {
         }
 
         toast.success('Pedido actualizado para esta mesa.')
-        await loadMesaPedido(Number(validation.data.mesaId))
+        await Promise.all([loadMesaPedido(Number(validation.data.mesaId)), loadMesas()])
       } else {
+        const mesaId = Number(validation.data.mesaId)
+        const pedidoAbierto = openPedidosByMesa[mesaId]
+        if (pedidoAbierto) {
+          toast.info(`La mesa ya tiene un pedido abierto (${pedidoAbierto.codigo ?? `#${pedidoAbierto.id}`}).`)
+          await loadMesaPedido(mesaId)
+          return false
+        }
+
         await pedidosService.create(payload)
         toast.success(`Pedido creado para Mesa #${selectedMesa?.numero ?? validation.data.mesaId}.`)
-        await loadMesaPedido(Number(validation.data.mesaId))
+        await Promise.all([loadMesaPedido(Number(validation.data.mesaId)), loadMesas()])
       }
 
       setPedidoForm((current) => ({
@@ -650,46 +705,72 @@ export default function MesasPage() {
         usuarioId: current.usuarioId || String(validation.data.usuarioId),
         impuesto: String(validation.data.impuesto ?? 0),
       }))
+      return true
     } catch (requestError) {
       const backendMessage =
         axios.isAxiosError(requestError) && requestError.response
           ? extractBackendMessage(requestError.response.data)
           : ''
       toast.error(backendMessage || 'No fue posible crear el pedido.')
+      return false
     } finally {
       setSaving(false)
     }
   }
 
-  async function handlePedidoStatusChange(nextEstado: 'EN_PREPARACION' | 'FACTURADO') {
+  async function handleSendToKitchen() {
     if (!selectedPedido) {
       toast.error('Primero abre o crea un pedido para esta mesa.')
       return
     }
 
-    if (
-      pedidoForm.lineas.some(
-        (linea) =>
-          linea.codigoProducto.trim() ||
-          linea.productoId.trim() ||
-          linea.precioUnitario.trim() ||
-          linea.observacion.trim(),
-      )
-    ) {
-      await handleSavePedido()
+    if (hasDraftPedidoLineData()) {
+      const saved = await handleSavePedido()
+      if (!saved) {
+        return
+      }
     }
 
     setSaving(true)
     try {
-      await pedidosService.update(selectedPedido.id, { estado: nextEstado })
-      toast.success(nextEstado === 'EN_PREPARACION' ? 'Comanda enviada a cocina.' : 'Pedido marcado para facturación.')
-      await loadMesaPedido(Number(selectedMesa?.id ?? selectedPedido.mesaId ?? 0))
+      await pedidosService.sendToKitchen(selectedPedido.id)
+      toast.success('Comanda enviada a cocina.')
+      await Promise.all([loadMesaPedido(Number(selectedMesa?.id ?? selectedPedido.mesaId ?? 0)), loadMesas()])
     } catch (requestError) {
       const backendMessage =
         axios.isAxiosError(requestError) && requestError.response
           ? extractBackendMessage(requestError.response.data)
           : ''
-      toast.error(backendMessage || 'No fue posible cambiar el estado del pedido.')
+      toast.error(backendMessage || 'No fue posible enviar la comanda a cocina.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleFacturarPedido() {
+    if (!selectedPedido) {
+      toast.error('Primero abre o crea un pedido para esta mesa.')
+      return
+    }
+
+    if (hasDraftPedidoLineData()) {
+      const saved = await handleSavePedido()
+      if (!saved) {
+        return
+      }
+    }
+
+    setSaving(true)
+    try {
+      await pedidosService.bill(selectedPedido.id)
+      toast.success('Pedido facturado y cerrado correctamente.')
+      await Promise.all([loadMesaPedido(Number(selectedMesa?.id ?? selectedPedido.mesaId ?? 0)), loadMesas()])
+    } catch (requestError) {
+      const backendMessage =
+        axios.isAxiosError(requestError) && requestError.response
+          ? extractBackendMessage(requestError.response.data)
+          : ''
+      toast.error(backendMessage || 'No fue posible facturar el pedido.')
     } finally {
       setSaving(false)
     }
@@ -724,26 +805,28 @@ export default function MesasPage() {
               </Typography>
             </Stack>
             <Typography sx={{ color: COLOR_MUTED, maxWidth: 760 }}>
-              Administra la capacidad, disponibilidad y observaciones de cada mesa para que el equipo atienda sin fricciones.
+              Visualiza el estado de cada mesa y gestiona el pedido activo sin abrir comandas duplicadas.
             </Typography>
           </Box>
 
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={openCreateDialog}
-            sx={{
-              alignSelf: { xs: 'stretch', md: 'center' },
-              background: `linear-gradient(135deg, ${COLOR_GOLD} 0%, #f2d36f 100%)`,
-              color: '#1a1208',
-              fontWeight: 700,
-              '&:hover': {
-                background: `linear-gradient(135deg, #e5c253 0%, #f7df8d 100%)`,
-              },
-            }}
-          >
-            Nueva mesa
-          </Button>
+          {isAdmin ? (
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={openCreateDialog}
+              sx={{
+                alignSelf: { xs: 'stretch', md: 'center' },
+                background: `linear-gradient(135deg, ${COLOR_GOLD} 0%, #f2d36f 100%)`,
+                color: '#1a1208',
+                fontWeight: 700,
+                '&:hover': {
+                  background: `linear-gradient(135deg, #e5c253 0%, #f7df8d 100%)`,
+                },
+              }}
+            >
+              Nueva mesa
+            </Button>
+          ) : null}
         </Stack>
       </Paper>
 
@@ -832,7 +915,7 @@ export default function MesasPage() {
               No hay mesas para mostrar
             </Typography>
             <Typography sx={{ color: COLOR_MUTED }}>
-              Ajusta el filtro o crea una nueva mesa para comenzar.
+              Ajusta los filtros para localizar mesas registradas.
             </Typography>
           </Box>
         ) : (
@@ -844,7 +927,11 @@ export default function MesasPage() {
               p: 2,
             }}
           >
-            {visibleMesas.map((mesa) => (
+            {visibleMesas.map((mesa) => {
+              const activePedido = openPedidosByMesa[mesa.id]
+              const isMesaOccupied = Boolean(activePedido)
+
+              return (
               <Card
                 key={mesa.id}
                 onClick={() => openPedidoDrawer(mesa)}
@@ -919,10 +1006,14 @@ export default function MesasPage() {
                     </Box>
                     <Chip
                       size="small"
-                      label={mesa.activa ? 'Disponible' : 'Inactiva'}
+                      label={mesa.activa ? (isMesaOccupied ? 'Ocupada' : 'Disponible') : 'Inactiva'}
                       sx={{
-                        backgroundColor: mesa.activa ? 'rgba(76,175,80,0.14)' : 'rgba(143,29,46,0.18)',
-                        color: mesa.activa ? '#9ae6a0' : '#f4a7b1',
+                        backgroundColor: !mesa.activa
+                          ? 'rgba(143,29,46,0.18)'
+                          : isMesaOccupied
+                            ? 'rgba(255,152,0,0.2)'
+                            : 'rgba(76,175,80,0.14)',
+                        color: !mesa.activa ? '#f4a7b1' : isMesaOccupied ? '#ffd28e' : '#9ae6a0',
                         fontWeight: 700,
                       }}
                     />
@@ -939,7 +1030,7 @@ export default function MesasPage() {
                   >
                     <Typography sx={{ color: COLOR_MUTED, fontSize: '0.88rem', mb: 0.5 }}>Observación</Typography>
                     <Typography sx={{ color: COLOR_TEXT }}>
-                      {mesa.observacion || 'Sin observaciones. Toca la mesa para iniciar el pedido.'}
+                      {mesa.observacion || 'Sin observaciones. Toca la mesa para gestionar el pedido.'}
                     </Typography>
                   </Box>
 
@@ -966,7 +1057,7 @@ export default function MesasPage() {
                         },
                       }}
                     >
-                      Iniciar pedido
+                      {isMesaOccupied ? 'Gestionar pedido' : 'Iniciar pedido'}
                     </Button>
 
                     {isAdmin ? (
@@ -1001,7 +1092,8 @@ export default function MesasPage() {
                   </Stack>
                 </CardContent>
               </Card>
-            ))}
+              )
+            })}
           </Box>
         )}
       </Paper>
@@ -1015,7 +1107,9 @@ export default function MesasPage() {
                   Mesa #{selectedMesa?.numero ?? ''}
                 </Typography>
                 <Typography sx={{ color: COLOR_MUTED, mt: 0.5 }}>
-                  {selectedPedido ? 'Pedido cargado y listo para seguir agregando.' : 'Inicia el pedido aquí sin salir de la pantalla de mesas.'}
+                  {selectedPedido
+                    ? 'Pedido abierto: agrega líneas, envía a cocina y factura al cierre del servicio.'
+                    : 'No hay pedido abierto en esta mesa. Crea uno para iniciar el servicio.'}
                 </Typography>
               </Box>
               <Chip
@@ -1268,23 +1362,23 @@ export default function MesasPage() {
               {selectedPedido ? (
                 <Button
                   variant="outlined"
-                  onClick={() => void handlePedidoStatusChange('EN_PREPARACION')}
+                  onClick={() => void handleSendToKitchen()}
                   disabled={saving || pedidoLoading}
                   fullWidth
                   sx={{ color: COLOR_GOLD, borderColor: 'rgba(212,175,55,0.35)' }}
                 >
-                  Cocina
+                  Enviar a cocina
                 </Button>
               ) : null}
               {selectedPedido ? (
                 <Button
                   variant="outlined"
-                  onClick={() => void handlePedidoStatusChange('FACTURADO')}
+                  onClick={() => void handleFacturarPedido()}
                   disabled={saving || pedidoLoading}
                   fullWidth
                   sx={{ color: COLOR_TEXT, borderColor: 'rgba(243,233,210,0.35)' }}
                 >
-                  Factura
+                  Facturar
                 </Button>
               ) : null}
               <Button
