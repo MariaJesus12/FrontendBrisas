@@ -1,3 +1,4 @@
+import axios from 'axios'
 import api from './api'
 import type {
   CreatePagoPedidoDto,
@@ -19,12 +20,50 @@ export const pedidosService = {
   sendToKitchen: (id: number) => api.post<Pedido>(`/pedidos/${id}/enviar-cocina`),
   bill: (id: number) => api.post<Pedido>(`/pedidos/${id}/facturar`),
   delete: (id: number) => api.delete(`/pedidos/${id}`),
-  getDetails: (id: number) => api.get<PedidoDetalle[]>(`/pedidos/${id}/details`),
-  createDetail: (id: number, data: CreatePedidoDetalleDto) =>
-    api.post<PedidoDetalle>(`/pedidos/${id}/details`, data),
-  updateDetail: (id: number, detailId: number, data: Partial<CreatePedidoDetalleDto>) =>
-    api.put<PedidoDetalle>(`/pedidos/${id}/details/${detailId}`, data),
-  deleteDetail: (id: number, detailId: number) => api.delete(`/pedidos/${id}/details/${detailId}`),
+  getDetails: async (id: number) => {
+    try {
+      return await api.get<PedidoDetalle[]>(`/pedidos/${id}/details`)
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        return api.get<PedidoDetalle[]>(`/pedidos/${id}/detalles`)
+      }
+
+      throw error
+    }
+  },
+  createDetail: async (id: number, data: CreatePedidoDetalleDto) => {
+    try {
+      return await api.post<PedidoDetalle>(`/pedidos/${id}/details`, data)
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        return api.post<PedidoDetalle>(`/pedidos/${id}/detalles`, data)
+      }
+
+      throw error
+    }
+  },
+  updateDetail: async (id: number, detailId: number, data: Partial<CreatePedidoDetalleDto>) => {
+    try {
+      return await api.put<PedidoDetalle>(`/pedidos/${id}/details/${detailId}`, data)
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        return api.put<PedidoDetalle>(`/pedidos/${id}/detalles/${detailId}`, data)
+      }
+
+      throw error
+    }
+  },
+  deleteDetail: async (id: number, detailId: number) => {
+    try {
+      return await api.delete(`/pedidos/${id}/details/${detailId}`)
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        return api.delete(`/pedidos/${id}/detalles/${detailId}`)
+      }
+
+      throw error
+    }
+  },
   getPayments: (id: number) => api.get<PagoPedido[]>(`/pedidos/${id}/payments`),
   createPayment: (id: number, data: CreatePagoPedidoDto) =>
     api.post<PagoPedido>(`/pedidos/${id}/payments`, data),

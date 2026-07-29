@@ -14,6 +14,7 @@ import {
   DialogTitle,
   Divider,
   Drawer,
+  IconButton,
   Paper,
   Stack,
   Switch,
@@ -100,6 +101,27 @@ function normalizePedidoEstado(value: unknown): string {
   return String(value ?? '').trim().toUpperCase()
 }
 
+function toPositiveInt(value: unknown): number | null {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) {
+    return null
+  }
+
+  const normalized = Math.trunc(parsed)
+  return normalized > 0 ? normalized : null
+}
+
+function pickPositiveInt(record: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const candidate = toPositiveInt(record[key])
+    if (candidate) {
+      return candidate
+    }
+  }
+
+  return null
+}
+
 function extractBackendMessage(payload: unknown): string {
   if (typeof payload === 'string') {
     return payload
@@ -159,6 +181,189 @@ function normalizeMesaRecord(item: unknown): Mesa {
     createdAt: typeof record.createdAt === 'string' ? record.createdAt : undefined,
     updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : undefined,
   }
+}
+
+function normalizePedidoRecord(item: unknown): Pedido {
+  if (typeof item !== 'object' || item === null) {
+    return { id: 0, tipo: 'MESA', estado: 'BORRADOR' }
+  }
+
+  const record = item as Record<string, unknown>
+  const mesaRaw = typeof record.mesa === 'object' && record.mesa !== null ? (record.mesa as Record<string, unknown>) : null
+  const usuarioRaw =
+    typeof record.usuario === 'object' && record.usuario !== null
+      ? (record.usuario as Record<string, unknown>)
+      : null
+  const pedidoRaw = typeof record.pedido === 'object' && record.pedido !== null ? (record.pedido as Record<string, unknown>) : null
+
+  const pedidoId =
+    pickPositiveInt(record, ['id', 'pedidoId', 'pedido_id', 'idPedido', 'orderId', 'order_id']) ??
+    (pedidoRaw ? pickPositiveInt(pedidoRaw, ['id', 'pedidoId', 'pedido_id', 'idPedido']) : null) ??
+    0
+
+  const mesaId =
+    pickPositiveInt(record, ['mesaId', 'mesa_id', 'idMesa']) ??
+    (mesaRaw ? pickPositiveInt(mesaRaw, ['id', 'mesaId', 'mesa_id']) : null) ??
+    undefined
+
+  const usuarioId =
+    pickPositiveInt(record, ['usuarioId', 'usuario_id', 'idUsuario']) ??
+    (usuarioRaw ? pickPositiveInt(usuarioRaw, ['id', 'usuarioId', 'usuario_id']) : null) ??
+    undefined
+
+  return {
+    id: pedidoId,
+    codigo:
+      typeof record.codigo === 'string'
+        ? record.codigo
+        : typeof record.code === 'string'
+          ? record.code
+          : undefined,
+    mesaId,
+    mesa: mesaRaw
+      ? {
+          id: Number(mesaRaw.id ?? mesaRaw.mesaId ?? mesaRaw.mesa_id ?? 0) || undefined,
+          numero: Number(mesaRaw.numero ?? mesaRaw.number ?? 0) || undefined,
+          capacidad: Number(mesaRaw.capacidad ?? mesaRaw.capacity ?? 0) || undefined,
+          activa:
+            typeof mesaRaw.activa === 'boolean'
+              ? mesaRaw.activa
+              : typeof mesaRaw.active === 'boolean'
+                ? mesaRaw.active
+                : undefined,
+        }
+      : undefined,
+    usuarioId,
+    usuario: usuarioRaw
+      ? {
+          id: Number(usuarioRaw.id ?? usuarioRaw.usuarioId ?? usuarioRaw.usuario_id ?? 0) || undefined,
+          nombre:
+            typeof usuarioRaw.nombre === 'string'
+              ? usuarioRaw.nombre
+              : typeof usuarioRaw.name === 'string'
+                ? usuarioRaw.name
+                : undefined,
+          usuario:
+            typeof usuarioRaw.usuario === 'string'
+              ? usuarioRaw.usuario
+              : typeof usuarioRaw.username === 'string'
+                ? usuarioRaw.username
+                : undefined,
+          email: typeof usuarioRaw.email === 'string' ? usuarioRaw.email : undefined,
+        }
+      : undefined,
+    tipo:
+      typeof record.tipo === 'string'
+        ? record.tipo
+        : typeof record.type === 'string'
+          ? record.type
+          : 'MESA',
+    estado:
+      typeof record.estado === 'string'
+        ? record.estado
+        : typeof record.status === 'string'
+          ? record.status
+          : 'BORRADOR',
+    impuesto: Number(record.impuesto ?? record.tax ?? 0) || 0,
+    total: Number(record.total ?? record.montoTotal ?? record.monto_total ?? 0) || 0,
+    totalPagado: Number(record.totalPagado ?? record.total_pagado ?? record.pagado ?? 0) || 0,
+    saldoPendiente: Number(record.saldoPendiente ?? record.saldo_pendiente ?? record.saldo ?? 0) || 0,
+    detalles: Array.isArray(record.detalles) ? (record.detalles as PedidoDetalle[]) : undefined,
+    createdAt:
+      typeof record.createdAt === 'string'
+        ? record.createdAt
+        : typeof record.created_at === 'string'
+          ? record.created_at
+          : typeof record.fechaCreacion === 'string'
+            ? record.fechaCreacion
+            : undefined,
+    updatedAt:
+      typeof record.updatedAt === 'string'
+        ? record.updatedAt
+        : typeof record.updated_at === 'string'
+          ? record.updated_at
+          : typeof record.fechaActualizacion === 'string'
+            ? record.fechaActualizacion
+            : undefined,
+  }
+}
+
+function normalizePedidoDetailRecord(item: unknown): PedidoDetalle {
+  if (typeof item !== 'object' || item === null) {
+    return {
+      id: 0,
+      productoId: 0,
+      cantidad: 0,
+      precioUnitario: 0,
+    }
+  }
+
+  const record = item as Record<string, unknown>
+  const productoRaw =
+    typeof record.producto === 'object' && record.producto !== null
+      ? (record.producto as Record<string, unknown>)
+      : null
+
+  return {
+    id: Number(record.id ?? record.detalleId ?? record.detalle_id ?? 0),
+    productoId: Number(record.productoId ?? record.producto_id ?? record.productId ?? productoRaw?.id ?? 0),
+    producto: productoRaw
+      ? {
+          id: Number(productoRaw.id ?? productoRaw.productoId ?? productoRaw.producto_id ?? 0) || undefined,
+          nombre:
+            typeof productoRaw.nombre === 'string'
+              ? productoRaw.nombre
+              : typeof productoRaw.name === 'string'
+                ? productoRaw.name
+                : undefined,
+          precio: Number(productoRaw.precio ?? productoRaw.price ?? 0) || undefined,
+        }
+      : undefined,
+    cantidad: Number(record.cantidad ?? record.qty ?? 0),
+    precioUnitario: Number(record.precioUnitario ?? record.precio_unitario ?? record.price ?? 0),
+    observacion:
+      typeof record.observacion === 'string'
+        ? record.observacion
+        : typeof record.note === 'string'
+          ? record.note
+          : undefined,
+    subtotal: Number(record.subtotal ?? record.lineTotal ?? record.line_total ?? 0) || undefined,
+  }
+}
+
+function extractArrayFromPayload(payload: unknown, keys: string[]): unknown[] {
+  if (Array.isArray(payload)) {
+    return payload
+  }
+
+  if (typeof payload !== 'object' || payload === null) {
+    return []
+  }
+
+  const record = payload as Record<string, unknown>
+
+  for (const key of keys) {
+    const value = record[key]
+    if (Array.isArray(value)) {
+      return value
+    }
+    if (typeof value === 'object' && value !== null) {
+      for (const nestedKey of keys) {
+        const nestedValue = (value as Record<string, unknown>)[nestedKey]
+        if (Array.isArray(nestedValue)) {
+          return nestedValue
+        }
+      }
+    }
+  }
+
+  for (const value of Object.values(record)) {
+    if (Array.isArray(value)) {
+      return value
+    }
+  }
+
+  return []
 }
 
 function unwrapMesasPayload(payload: unknown): Mesa[] {
@@ -262,6 +467,22 @@ function formatCurrency(value: number | null | undefined): string {
   }).format(safeValue)
 }
 
+function formatDateTime(value?: string): string {
+  if (!value) {
+    return 'Sin fecha'
+  }
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return value
+  }
+
+  return parsed.toLocaleString('es-CR', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  })
+}
+
 export default function MesasPage() {
   const { user } = useAuth()
   const currentRole = normalizeRole(user)
@@ -283,6 +504,16 @@ export default function MesasPage() {
   const [openPedidosByMesa, setOpenPedidosByMesa] = useState<Record<number, Pedido>>({})
   const [pedidoLoading, setPedidoLoading] = useState(false)
   const [pedidoForm, setPedidoForm] = useState<PedidoMesaFormState>(initialPedidoForm)
+  const [invoicePreviewOpen, setInvoicePreviewOpen] = useState(false)
+  const [invoicePreviewPedido, setInvoicePreviewPedido] = useState<Pedido | null>(null)
+  const [invoicePreviewDetails, setInvoicePreviewDetails] = useState<PedidoDetalle[]>([])
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false)
+  const [editingDetail, setEditingDetail] = useState<PedidoDetalle | null>(null)
+  const [detailForm, setDetailForm] = useState({
+    cantidad: '1',
+    precioUnitario: '0',
+    observacion: '',
+  })
 
   useEffect(() => {
     if (user?.id) {
@@ -481,7 +712,6 @@ export default function MesasPage() {
   function setDraftPedidoForMesa(mesa: Mesa, pedido?: Pedido | null) {
     setPedidoForm({
       ...initialPedidoForm,
-      codigo: pedido?.codigo ?? '',
       mesaId: String(mesa.id),
       usuarioId: pedido?.usuarioId ? String(pedido.usuarioId) : user?.id ? String(user.id) : '',
       impuesto: String(pedido?.impuesto ?? 0),
@@ -489,23 +719,30 @@ export default function MesasPage() {
   }
 
   function unwrapPedidosPayload(payload: unknown): Pedido[] {
-    if (Array.isArray(payload)) {
-      return payload as Pedido[]
-    }
+    const rawItems = extractArrayFromPayload(payload, ['data', 'items', 'results', 'pedidos'])
+    return rawItems.map((item) => normalizePedidoRecord(item))
+  }
 
-    if (typeof payload === 'object' && payload !== null) {
-      const record = payload as Record<string, unknown>
-      const keys = ['data', 'items', 'results', 'pedidos']
+  function unwrapPedidoDetailsPayload(payload: unknown): PedidoDetalle[] {
+    const rawItems = extractArrayFromPayload(payload, ['data', 'items', 'results', 'details', 'detalles'])
+    return rawItems.map((item) => normalizePedidoDetailRecord(item))
+  }
 
-      for (const key of keys) {
-        const value = record[key]
-        if (Array.isArray(value)) {
-          return value as Pedido[]
-        }
+  function mergePedidoDetails(base: PedidoDetalle[], fallback: PedidoDetalle[]): PedidoDetalle[] {
+    const byKey = new Map<string, PedidoDetalle>()
+
+    for (const detail of [...base, ...fallback]) {
+      const key =
+        detail.id > 0
+          ? `id:${detail.id}`
+          : `tmp:${detail.productoId}:${detail.cantidad}:${detail.precioUnitario}:${detail.observacion ?? ''}`
+
+      if (!byKey.has(key)) {
+        byKey.set(key, detail)
       }
     }
 
-    return []
+    return Array.from(byKey.values())
   }
 
   function isActivePedido(pedido: Pedido): boolean {
@@ -519,7 +756,7 @@ export default function MesasPage() {
       const response = await pedidosService.getAll({ mesaId, tipo: 'MESA' })
       const pedidos = unwrapPedidosPayload(response.data)
       const pedidoSeleccionado = pedidos
-        .filter((pedido) => isActivePedido(pedido))
+        .filter((pedido) => isActivePedido(pedido) && toPositiveInt(pedido.id) !== null)
         .sort((left, right) => {
           const rightDate = right.createdAt ? new Date(right.createdAt).getTime() : 0
           const leftDate = left.createdAt ? new Date(left.createdAt).getTime() : 0
@@ -533,18 +770,36 @@ export default function MesasPage() {
         return
       }
 
-      const detailsResponse = await pedidosService.getDetails(pedidoSeleccionado.id)
-      setSelectedPedido(pedidoSeleccionado)
-      setCurrentPedidoDetails(detailsResponse.data)
+      const [pedidoByIdResult, detailsResult] = await Promise.allSettled([
+        pedidosService.getById(pedidoSeleccionado.id),
+        pedidosService.getDetails(pedidoSeleccionado.id),
+      ])
+
+      const hydratedPedido =
+        pedidoByIdResult.status === 'fulfilled'
+          ? normalizePedidoRecord(pedidoByIdResult.value.data)
+          : pedidoSeleccionado
+
+      const parsedDetails =
+        detailsResult.status === 'fulfilled' ? unwrapPedidoDetailsPayload(detailsResult.value.data) : []
+
+      const fallbackDetails = Array.isArray(hydratedPedido.detalles)
+        ? hydratedPedido.detalles.map((item) => normalizePedidoDetailRecord(item))
+        : Array.isArray(pedidoSeleccionado.detalles)
+          ? pedidoSeleccionado.detalles.map((item) => normalizePedidoDetailRecord(item))
+          : []
+
+      setSelectedPedido(hydratedPedido)
+      setCurrentPedidoDetails(mergePedidoDetails(parsedDetails, fallbackDetails))
       setDraftPedidoForMesa(
         {
           id: mesaId,
-          numero: pedidoSeleccionado.mesa?.numero ?? mesaId,
-          capacidad: pedidoSeleccionado.mesa?.capacidad ?? 0,
-          observacion: pedidoSeleccionado.mesa?.numero ? `Pedido activo en mesa #${pedidoSeleccionado.mesa.numero}` : undefined,
+          numero: hydratedPedido.mesa?.numero ?? mesaId,
+          capacidad: hydratedPedido.mesa?.capacidad ?? 0,
+          observacion: hydratedPedido.mesa?.numero ? `Pedido activo en mesa #${hydratedPedido.mesa.numero}` : undefined,
           activa: true,
         },
-        pedidoSeleccionado,
+        hydratedPedido,
       )
     } catch (requestError) {
       const backendMessage =
@@ -576,6 +831,11 @@ export default function MesasPage() {
     setSelectedPedido(null)
     setCurrentPedidoDetails([])
     setPedidoForm(initialPedidoForm)
+    setInvoicePreviewOpen(false)
+    setInvoicePreviewPedido(null)
+    setInvoicePreviewDetails([])
+    setDetailDialogOpen(false)
+    setEditingDetail(null)
   }
 
   function updatePedidoLine(index: number, nextValue: Partial<PedidoMesaLineaForm>) {
@@ -633,6 +893,19 @@ export default function MesasPage() {
     )
   }
 
+  function resolvePedidoId(detail?: PedidoDetalle): number | null {
+    const fromDetail = detail
+      ? toPositiveInt((detail as unknown as Record<string, unknown>).pedidoId) ??
+        toPositiveInt((detail as unknown as Record<string, unknown>).pedido_id)
+      : null
+
+    const fromSelected = toPositiveInt(selectedPedido?.id)
+    const fromInvoicePreview = toPositiveInt(invoicePreviewPedido?.id)
+    const fromMesaMap = selectedMesa ? toPositiveInt(openPedidosByMesa[selectedMesa.id]?.id) : null
+
+    return fromDetail ?? fromSelected ?? fromInvoicePreview ?? fromMesaMap ?? null
+  }
+
   async function handleSavePedido(): Promise<boolean> {
     const parsedLineas = pedidoForm.lineas.map((linea) => ({
       productoId: Number(linea.productoId),
@@ -642,7 +915,7 @@ export default function MesasPage() {
     }))
 
     const validation = pedidoSchema.safeParse({
-      codigo: pedidoForm.codigo.trim() || undefined,
+      codigo: undefined,
       mesaId: pedidoForm.mesaId,
       usuarioId: pedidoForm.usuarioId,
       tipo: pedidoForm.tipo,
@@ -670,8 +943,14 @@ export default function MesasPage() {
     setSaving(true)
     try {
       if (selectedPedido) {
+        const pedidoId = resolvePedidoId()
+        if (!pedidoId) {
+          toast.error('No se encontro un id de pedido valido para actualizar esta mesa.')
+          return false
+        }
+
         for (const detalle of validation.data.detalles) {
-          await pedidosService.createDetail(selectedPedido.id, detalle)
+          await pedidosService.createDetail(pedidoId, detalle)
         }
 
         if (validation.data.estado !== selectedPedido.estado || validation.data.impuesto !== selectedPedido.impuesto) {
@@ -680,7 +959,7 @@ export default function MesasPage() {
             impuesto: validation.data.impuesto,
           }
 
-          await pedidosService.update(selectedPedido.id, updatePayload)
+          await pedidosService.update(pedidoId, updatePayload)
         }
 
         toast.success('Pedido actualizado para esta mesa.')
@@ -724,6 +1003,12 @@ export default function MesasPage() {
       return
     }
 
+    const pedidoId = resolvePedidoId()
+    if (!pedidoId) {
+      toast.error('No se encontro un id de pedido valido para enviar a cocina.')
+      return
+    }
+
     if (hasDraftPedidoLineData()) {
       const saved = await handleSavePedido()
       if (!saved) {
@@ -733,7 +1018,7 @@ export default function MesasPage() {
 
     setSaving(true)
     try {
-      await pedidosService.sendToKitchen(selectedPedido.id)
+      await pedidosService.sendToKitchen(pedidoId)
       toast.success('Comanda enviada a cocina.')
       await Promise.all([loadMesaPedido(Number(selectedMesa?.id ?? selectedPedido.mesaId ?? 0)), loadMesas()])
     } catch (requestError) {
@@ -747,24 +1032,163 @@ export default function MesasPage() {
     }
   }
 
-  async function handleFacturarPedido() {
+  async function openInvoicePreview() {
     if (!selectedPedido) {
       toast.error('Primero abre o crea un pedido para esta mesa.')
       return
     }
 
-    if (hasDraftPedidoLineData()) {
-      const saved = await handleSavePedido()
-      if (!saved) {
-        return
+    const pedidoId = resolvePedidoId()
+    if (!pedidoId) {
+      toast.error('No se encontro un id de pedido valido para la factura.')
+      return
+    }
+
+    setPedidoLoading(true)
+    try {
+      const [pedidoResult, detailsResult] = await Promise.allSettled([
+        pedidosService.getById(pedidoId),
+        pedidosService.getDetails(pedidoId),
+      ])
+
+      const previewPedido =
+        pedidoResult.status === 'fulfilled' && pedidoResult.value?.data
+          ? normalizePedidoRecord(pedidoResult.value.data)
+          : selectedPedido
+
+      const previewDetails =
+        detailsResult.status === 'fulfilled'
+          ? unwrapPedidoDetailsPayload(detailsResult.value.data)
+          : currentPedidoDetails
+
+      const fallbackDetails = Array.isArray(previewPedido.detalles)
+        ? previewPedido.detalles.map((item) => normalizePedidoDetailRecord(item))
+        : currentPedidoDetails
+
+      const safePreviewDetails = mergePedidoDetails(previewDetails, fallbackDetails)
+
+      setInvoicePreviewPedido(previewPedido)
+      setInvoicePreviewDetails(safePreviewDetails)
+      setInvoicePreviewOpen(true)
+
+      if (hasDraftPedidoLineData()) {
+        toast.info('Hay lineas sin guardar. Guardalas si quieres incluirlas en esta factura.')
       }
+
+      if (pedidoResult.status === 'rejected' || detailsResult.status === 'rejected') {
+        toast.info('Se mostró la vista previa con los datos disponibles localmente.')
+      }
+    } catch (requestError) {
+      const backendMessage =
+        axios.isAxiosError(requestError) && requestError.response
+          ? extractBackendMessage(requestError.response.data)
+          : ''
+      toast.error(backendMessage || 'No fue posible cargar la vista previa de la factura.')
+    } finally {
+      setPedidoLoading(false)
+    }
+  }
+
+  function openEditDetailDialog(detail: PedidoDetalle) {
+    setEditingDetail(detail)
+    setDetailForm({
+      cantidad: String(detail.cantidad),
+      precioUnitario: String(detail.precioUnitario),
+      observacion: detail.observacion ?? '',
+    })
+    setDetailDialogOpen(true)
+  }
+
+  async function handleSaveDetailUpdate() {
+    if (!selectedPedido || !editingDetail) {
+      return
+    }
+
+    const pedidoId = resolvePedidoId(editingDetail)
+    if (!pedidoId) {
+      toast.error('No se encontro un id de pedido valido para editar esta linea.')
+      return
+    }
+
+    const cantidad = Number(detailForm.cantidad)
+    const precioUnitario = Number(detailForm.precioUnitario)
+
+    if (!Number.isFinite(cantidad) || cantidad <= 0 || !Number.isFinite(precioUnitario) || precioUnitario < 0) {
+      toast.error('Revisa cantidad y precio para actualizar la línea.')
+      return
     }
 
     setSaving(true)
     try {
-      await pedidosService.bill(selectedPedido.id)
+      await pedidosService.updateDetail(pedidoId, editingDetail.id, {
+        productoId: editingDetail.productoId,
+        cantidad,
+        precioUnitario,
+        observacion: detailForm.observacion.trim() || undefined,
+      })
+
+      toast.success('Producto actualizado en el pedido.')
+      setDetailDialogOpen(false)
+      setEditingDetail(null)
+      await loadMesaPedido(Number(selectedMesa?.id ?? selectedPedido.mesaId ?? 0))
+    } catch (requestError) {
+      const backendMessage =
+        axios.isAxiosError(requestError) && requestError.response
+          ? extractBackendMessage(requestError.response.data)
+          : ''
+      toast.error(backendMessage || 'No fue posible actualizar la línea del pedido.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleDeleteCurrentDetail(detail: PedidoDetalle) {
+    if (!selectedPedido) {
+      return
+    }
+
+    const pedidoId = resolvePedidoId(detail)
+    if (!pedidoId) {
+      toast.error('No se encontro un id de pedido valido para eliminar esta linea.')
+      return
+    }
+
+    setSaving(true)
+    try {
+      await pedidosService.deleteDetail(pedidoId, detail.id)
+      toast.success('Producto eliminado del pedido.')
+      await loadMesaPedido(Number(selectedMesa?.id ?? selectedPedido.mesaId ?? 0))
+    } catch (requestError) {
+      const backendMessage =
+        axios.isAxiosError(requestError) && requestError.response
+          ? extractBackendMessage(requestError.response.data)
+          : ''
+      toast.error(backendMessage || 'No fue posible eliminar la línea del pedido.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleFacturarPedido() {
+    if (!invoicePreviewPedido) {
+      toast.error('Primero abre la vista previa de la factura.')
+      return
+    }
+
+    const pedidoId = resolvePedidoId()
+    if (!pedidoId) {
+      toast.error('No se encontro un id de pedido valido para facturar.')
+      return
+    }
+
+    setSaving(true)
+    try {
+      await pedidosService.bill(pedidoId)
       toast.success('Pedido facturado y cerrado correctamente.')
-      await Promise.all([loadMesaPedido(Number(selectedMesa?.id ?? selectedPedido.mesaId ?? 0)), loadMesas()])
+      setInvoicePreviewOpen(false)
+      setInvoicePreviewPedido(null)
+      setInvoicePreviewDetails([])
+      await Promise.all([loadMesaPedido(Number(selectedMesa?.id ?? invoicePreviewPedido.mesaId ?? 0)), loadMesas()])
     } catch (requestError) {
       const backendMessage =
         axios.isAxiosError(requestError) && requestError.response
@@ -775,6 +1199,29 @@ export default function MesasPage() {
       setSaving(false)
     }
   }
+
+  const invoicePreviewSubtotal = useMemo(
+    () =>
+      invoicePreviewDetails.reduce(
+        (sum, detalle) => sum + (detalle.subtotal ?? detalle.precioUnitario * detalle.cantidad),
+        0,
+      ),
+    [invoicePreviewDetails],
+  )
+
+  const invoicePreviewImpuesto = useMemo(() => {
+    const rawTax = Number(invoicePreviewPedido?.impuesto ?? 0)
+    return Number.isFinite(rawTax) ? rawTax : 0
+  }, [invoicePreviewPedido])
+
+  const invoicePreviewTotal = useMemo(() => {
+    const backendTotal = Number(invoicePreviewPedido?.total)
+    if (Number.isFinite(backendTotal) && backendTotal > 0) {
+      return backendTotal
+    }
+
+    return invoicePreviewSubtotal + invoicePreviewImpuesto
+  }, [invoicePreviewPedido, invoicePreviewSubtotal, invoicePreviewImpuesto])
 
   return (
     <Box sx={{ color: COLOR_TEXT }}>
@@ -1168,31 +1615,59 @@ export default function MesasPage() {
                   <Stack spacing={1.25}>
                     <Typography sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Contenido actual</Typography>
                     {currentPedidoDetails.length > 0 ? (
-                      currentPedidoDetails.map((detalle) => (
-                        <Box
-                          key={detalle.id}
-                          sx={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            gap: 2,
-                            p: 1.25,
-                            borderRadius: 1.5,
-                            backgroundColor: 'rgba(255,255,255,0.03)',
-                          }}
-                        >
-                          <Box>
-                            <Typography sx={{ fontWeight: 700, color: COLOR_TEXT }}>
-                              {detalle.producto?.nombre ?? `Producto #${detalle.productoId}`}
-                            </Typography>
-                            <Typography sx={{ color: COLOR_MUTED, fontSize: '0.85rem' }}>
-                              Cantidad: {detalle.cantidad} {detalle.observacion ? `• ${detalle.observacion}` : ''}
-                            </Typography>
+                      currentPedidoDetails.map((detalle) => {
+                        const matchedProduct = products.find((product) => product.id === detalle.productoId)
+                        const productName =
+                          detalle.producto?.nombre ?? matchedProduct?.nombre ?? `Producto #${detalle.productoId}`
+                        const subtotal = detalle.subtotal ?? detalle.precioUnitario * detalle.cantidad
+
+                        return (
+                          <Box
+                            key={detalle.id}
+                            sx={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              gap: 2,
+                              p: 1.25,
+                              borderRadius: 1.5,
+                              backgroundColor: 'rgba(255,255,255,0.03)',
+                            }}
+                          >
+                            <Stack spacing={0.45} sx={{ minWidth: 0 }}>
+                              <Typography sx={{ fontWeight: 700, color: COLOR_TEXT }}>
+                                Producto: {productName}
+                              </Typography>
+                              <Typography sx={{ color: COLOR_MUTED, fontSize: '0.85rem' }}>
+                                Cantidad: {detalle.cantidad}
+                              </Typography>
+                              <Typography sx={{ color: COLOR_MUTED, fontSize: '0.85rem' }}>
+                                Observaciones: {detalle.observacion?.trim() || 'Sin observaciones'}
+                              </Typography>
+                              <Typography sx={{ color: COLOR_MUTED, fontSize: '0.85rem' }}>
+                                Precio unitario: {formatCurrency(detalle.precioUnitario)}
+                              </Typography>
+                            </Stack>
+
+                            <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                              <Typography sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Subtotal: {formatCurrency(subtotal)}</Typography>
+                              <IconButton
+                                size="small"
+                                onClick={() => openEditDetailDialog(detalle)}
+                                sx={{ color: COLOR_GOLD }}
+                              >
+                                <EditIcon fontSize="small" />
+                              </IconButton>
+                              <IconButton
+                                size="small"
+                                onClick={() => void handleDeleteCurrentDetail(detalle)}
+                                sx={{ color: '#f39ca8' }}
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </Stack>
                           </Box>
-                          <Typography sx={{ color: COLOR_GOLD, fontWeight: 700 }}>
-                            {formatCurrency(detalle.subtotal ?? detalle.precioUnitario * detalle.cantidad)}
-                          </Typography>
-                        </Box>
-                      ))
+                        )
+                      })
                     ) : (
                       <Typography sx={{ color: COLOR_MUTED }}>Aún no hay líneas guardadas para esta mesa.</Typography>
                     )}
@@ -1214,17 +1689,6 @@ export default function MesasPage() {
                 </Typography>
               </Paper>
             )}
-
-            <TextField
-              label="Código del pedido"
-              value={pedidoForm.codigo}
-              onChange={(event) => setPedidoForm((current) => ({ ...current, codigo: event.target.value }))}
-              fullWidth
-              sx={{
-                '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
-                '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
-              }}
-            />
 
             <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
               <TextField
@@ -1373,7 +1837,7 @@ export default function MesasPage() {
               {selectedPedido ? (
                 <Button
                   variant="outlined"
-                  onClick={() => void handleFacturarPedido()}
+                  onClick={() => void openInvoicePreview()}
                   disabled={saving || pedidoLoading}
                   fullWidth
                   sx={{ color: COLOR_TEXT, borderColor: 'rgba(243,233,210,0.35)' }}
@@ -1398,6 +1862,207 @@ export default function MesasPage() {
           </Box>
         </Box>
       </Drawer>
+
+      <Dialog
+        open={invoicePreviewOpen}
+        onClose={() => {
+          if (!saving) {
+            setInvoicePreviewOpen(false)
+          }
+        }}
+        fullWidth
+        maxWidth="md"
+      >
+        <DialogTitle
+          sx={{
+            background:
+              'linear-gradient(135deg, rgba(20,12,10,0.97) 0%, rgba(36,18,11,0.92) 100%), radial-gradient(circle at top right, rgba(212,175,55,0.2) 0%, transparent 32%)',
+            color: COLOR_GOLD,
+            fontWeight: 800,
+            py: 2.5,
+          }}
+        >
+          Vista previa de factura
+        </DialogTitle>
+
+        <DialogContent sx={{ backgroundColor: '#120c0a', p: { xs: 2, sm: 3 } }}>
+          <Paper
+            sx={{
+              p: { xs: 2, sm: 3 },
+              borderRadius: 2.5,
+              background:
+                'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(251,245,232,0.98) 100%), radial-gradient(circle at top right, rgba(212,175,55,0.13) 0%, transparent 36%)',
+              color: '#2b1a12',
+              border: '1px solid rgba(143,29,46,0.18)',
+              boxShadow: '0 14px 34px rgba(0,0,0,0.26)',
+            }}
+          >
+            <Stack spacing={2.25}>
+              <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ justifyContent: 'space-between', gap: 2 }}>
+                <Box>
+                  <Typography sx={{ fontSize: '1.45rem', fontWeight: 900, color: '#8F1D2E', lineHeight: 1.1 }}>
+                    Restaurante Brisas
+                  </Typography>
+                  <Typography sx={{ color: 'rgba(43,26,18,0.72)', fontSize: '0.92rem', mt: 0.5 }}>
+                    Vista previa antes de impresión y facturación
+                  </Typography>
+                </Box>
+                <Box sx={{ textAlign: { xs: 'left', sm: 'right' } }}>
+                  <Typography sx={{ fontWeight: 800, color: '#2b1a12' }}>
+                    {invoicePreviewPedido?.codigo || `Pedido #${invoicePreviewPedido?.id ?? ''}`}
+                  </Typography>
+                  <Typography sx={{ color: 'rgba(43,26,18,0.72)', fontSize: '0.9rem' }}>
+                    Fecha: {formatDateTime(invoicePreviewPedido?.createdAt)}
+                  </Typography>
+                </Box>
+              </Stack>
+
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' },
+                  gap: 1.25,
+                }}
+              >
+                <Paper sx={{ p: 1.25, backgroundColor: 'rgba(143,29,46,0.06)', border: '1px solid rgba(143,29,46,0.12)' }}>
+                  <Typography sx={{ fontSize: '0.82rem', color: 'rgba(43,26,18,0.7)' }}>Mesa</Typography>
+                  <Typography sx={{ fontWeight: 800, color: '#2b1a12' }}>
+                    #{selectedMesa?.numero ?? invoicePreviewPedido?.mesa?.numero ?? invoicePreviewPedido?.mesaId ?? '-'}
+                  </Typography>
+                </Paper>
+                <Paper sx={{ p: 1.25, backgroundColor: 'rgba(143,29,46,0.06)', border: '1px solid rgba(143,29,46,0.12)' }}>
+                  <Typography sx={{ fontSize: '0.82rem', color: 'rgba(43,26,18,0.7)' }}>Mesero</Typography>
+                  <Typography sx={{ fontWeight: 800, color: '#2b1a12' }}>
+                    {invoicePreviewPedido?.usuario?.nombre || user?.nombre || 'Sin usuario'}
+                  </Typography>
+                </Paper>
+                <Paper sx={{ p: 1.25, backgroundColor: 'rgba(143,29,46,0.06)', border: '1px solid rgba(143,29,46,0.12)' }}>
+                  <Typography sx={{ fontSize: '0.82rem', color: 'rgba(43,26,18,0.7)' }}>Estado actual</Typography>
+                  <Typography sx={{ fontWeight: 800, color: '#2b1a12' }}>
+                    {invoicePreviewPedido?.estado ?? 'SIN ESTADO'}
+                  </Typography>
+                </Paper>
+              </Box>
+
+              <Divider sx={{ borderColor: 'rgba(43,26,18,0.16)' }} />
+
+              <Stack spacing={1}>
+                <Typography sx={{ color: '#8F1D2E', fontWeight: 800 }}>Detalle a imprimir</Typography>
+
+                {invoicePreviewDetails.length > 0 ? (
+                  <Box sx={{ borderRadius: 2, border: '1px solid rgba(43,26,18,0.14)', overflow: 'hidden' }}>
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        gridTemplateColumns: 'minmax(0,2fr) 96px 128px 128px',
+                        gap: 1,
+                        py: 1,
+                        px: 1.25,
+                        backgroundColor: 'rgba(43,26,18,0.08)',
+                      }}
+                    >
+                      <Typography sx={{ fontWeight: 800, fontSize: '0.83rem' }}>Producto</Typography>
+                      <Typography sx={{ fontWeight: 800, fontSize: '0.83rem', textAlign: 'center' }}>Cant.</Typography>
+                      <Typography sx={{ fontWeight: 800, fontSize: '0.83rem', textAlign: 'right' }}>Precio</Typography>
+                      <Typography sx={{ fontWeight: 800, fontSize: '0.83rem', textAlign: 'right' }}>Subtotal</Typography>
+                    </Box>
+
+                    {invoicePreviewDetails.map((detalle) => {
+                      const subtotal = detalle.subtotal ?? detalle.precioUnitario * detalle.cantidad
+                      return (
+                        <Box
+                          key={detalle.id}
+                          sx={{
+                            display: 'grid',
+                            gridTemplateColumns: 'minmax(0,2fr) 96px 128px 128px',
+                            gap: 1,
+                            py: 1.1,
+                            px: 1.25,
+                            borderTop: '1px solid rgba(43,26,18,0.1)',
+                          }}
+                        >
+                          <Box>
+                            <Typography sx={{ fontWeight: 700, fontSize: '0.9rem', color: '#2b1a12' }}>
+                              {detalle.producto?.nombre ?? `Producto #${detalle.productoId}`}
+                            </Typography>
+                            {detalle.observacion ? (
+                              <Typography sx={{ fontSize: '0.78rem', color: 'rgba(43,26,18,0.72)' }}>
+                                Nota: {detalle.observacion}
+                              </Typography>
+                            ) : null}
+                          </Box>
+                          <Typography sx={{ textAlign: 'center', fontWeight: 700, color: '#2b1a12' }}>{detalle.cantidad}</Typography>
+                          <Typography sx={{ textAlign: 'right', fontWeight: 700, color: '#2b1a12' }}>
+                            {formatCurrency(detalle.precioUnitario)}
+                          </Typography>
+                          <Typography sx={{ textAlign: 'right', fontWeight: 800, color: '#8F1D2E' }}>
+                            {formatCurrency(subtotal)}
+                          </Typography>
+                        </Box>
+                      )
+                    })}
+                  </Box>
+                ) : (
+                  <Alert severity="warning" sx={{ backgroundColor: 'rgba(255,193,7,0.14)' }}>
+                    No hay líneas para facturar. Agrega productos antes de confirmar.
+                  </Alert>
+                )}
+              </Stack>
+
+              <Box sx={{ ml: 'auto', width: { xs: '100%', sm: 320 } }}>
+                <Stack spacing={1.1}>
+                  <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
+                    <Typography sx={{ color: 'rgba(43,26,18,0.75)' }}>Subtotal</Typography>
+                    <Typography sx={{ color: '#2b1a12', fontWeight: 700 }}>{formatCurrency(invoicePreviewSubtotal)}</Typography>
+                  </Stack>
+                  <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
+                    <Typography sx={{ color: 'rgba(43,26,18,0.75)' }}>Impuesto</Typography>
+                    <Typography sx={{ color: '#2b1a12', fontWeight: 700 }}>{formatCurrency(invoicePreviewImpuesto)}</Typography>
+                  </Stack>
+                  <Divider sx={{ borderColor: 'rgba(43,26,18,0.2)' }} />
+                  <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
+                    <Typography sx={{ color: '#8F1D2E', fontWeight: 900 }}>Total a facturar</Typography>
+                    <Typography sx={{ color: '#8F1D2E', fontWeight: 900 }}>{formatCurrency(invoicePreviewTotal)}</Typography>
+                  </Stack>
+                </Stack>
+              </Box>
+
+              <Typography sx={{ color: 'rgba(43,26,18,0.64)', fontSize: '0.78rem' }}>
+                Al confirmar, el backend recalcula subtotal, impuesto y total antes de generar la factura e impresión.
+              </Typography>
+            </Stack>
+          </Paper>
+        </DialogContent>
+
+        <DialogActions sx={{ backgroundColor: '#120c0a', p: 2.5 }}>
+          <Button
+            onClick={() => {
+              if (!saving) {
+                setInvoicePreviewOpen(false)
+              }
+            }}
+            sx={{ color: COLOR_TEXT }}
+            disabled={saving}
+          >
+            Volver
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => void handleFacturarPedido()}
+            disabled={saving || invoicePreviewDetails.length === 0}
+            sx={{
+              background: `linear-gradient(135deg, ${COLOR_MAROON} 0%, #b42f42 100%)`,
+              color: '#fff7ef',
+              fontWeight: 800,
+              '&:hover': {
+                background: 'linear-gradient(135deg, #a42535 0%, #c43b4f 100%)',
+              },
+            }}
+          >
+            {saving ? 'Facturando...' : 'Confirmar y facturar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={dialogOpen} onClose={closeDialog} fullWidth maxWidth="sm">
         <DialogTitle sx={{ backgroundColor: '#160f0c', color: COLOR_GOLD, fontWeight: 800 }}>
@@ -1459,6 +2124,75 @@ export default function MesasPage() {
             sx={{ backgroundColor: COLOR_MAROON, '&:hover': { backgroundColor: '#a42535' } }}
           >
             {saving ? 'Guardando...' : 'Guardar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={detailDialogOpen} onClose={() => setDetailDialogOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle sx={{ backgroundColor: '#160f0c', color: COLOR_GOLD, fontWeight: 800 }}>
+          Editar producto del pedido
+        </DialogTitle>
+        <DialogContent sx={{ backgroundColor: '#160f0c', pt: 3 }}>
+          <Stack spacing={2}>
+            <TextField
+              label="Producto"
+              value={editingDetail?.producto?.nombre ?? (editingDetail ? `Producto #${editingDetail.productoId}` : '')}
+              fullWidth
+              disabled
+              sx={{
+                '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+              }}
+            />
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+              <TextField
+                label="Cantidad"
+                value={detailForm.cantidad}
+                onChange={(event) => setDetailForm((current) => ({ ...current, cantidad: event.target.value }))}
+                type="number"
+                fullWidth
+                sx={{
+                  '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                  '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                }}
+              />
+              <TextField
+                label="Precio unitario"
+                value={detailForm.precioUnitario}
+                onChange={(event) => setDetailForm((current) => ({ ...current, precioUnitario: event.target.value }))}
+                type="number"
+                fullWidth
+                sx={{
+                  '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                  '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                }}
+              />
+            </Stack>
+            <TextField
+              label="Observación"
+              value={detailForm.observacion}
+              onChange={(event) => setDetailForm((current) => ({ ...current, observacion: event.target.value }))}
+              fullWidth
+              multiline
+              minRows={2}
+              sx={{
+                '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+              }}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ backgroundColor: '#160f0c', p: 2.5 }}>
+          <Button onClick={() => setDetailDialogOpen(false)} sx={{ color: COLOR_TEXT }}>
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => void handleSaveDetailUpdate()}
+            disabled={saving || !editingDetail}
+            sx={{ backgroundColor: COLOR_MAROON, '&:hover': { backgroundColor: '#a42535' } }}
+          >
+            {saving ? 'Guardando...' : 'Guardar cambios'}
           </Button>
         </DialogActions>
       </Dialog>
