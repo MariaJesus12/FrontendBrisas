@@ -24,6 +24,7 @@ export default function AppRouter() {
 
             <Route element={<PrivateRoute allowedRoles={['ADMIN', 'MESERO', 'CAJERO']} />}>
               <Route path="/mesas" element={<MesasPage />} />
+              <Route path="/pedidos-llevar" element={<PedidosPage fixedType="LLEVAR" />} />
               <Route path="/reservaciones" element={<ReservacionesPage />} />
               <Route path="/pedidos" element={<PedidosPage />} />
             </Route>

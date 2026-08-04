@@ -78,7 +78,9 @@ interface PedidoFilterState {
 }
 
 interface PedidoLineFormState {
+  codigoProducto: string
   productoId: string
+  productoNombre: string
   cantidad: string
   precioUnitario: string
   observacion: string
@@ -116,7 +118,7 @@ const initialPedidoForm: PedidoFormState = {
   tipo: 'MESA',
   estado: 'BORRADOR',
   impuesto: '0',
-  detalles: [{ productoId: '', cantidad: '1', precioUnitario: '', observacion: '' }],
+  detalles: [{ codigoProducto: '', productoId: '', productoNombre: '', cantidad: '1', precioUnitario: '', observacion: '' }],
 }
 
 const initialPaymentForm: PaymentFormState = {
@@ -206,6 +208,73 @@ function unwrapArrayPayload<T>(payload: unknown): T[] {
   return []
 }
 
+function normalizeProductRecord(item: unknown): Product | null {
+  if (typeof item !== 'object' || item === null) {
+    return null
+  }
+
+  const record = item as Record<string, unknown>
+  const id = Number(record.id ?? record.productId ?? record.product_id ?? 0)
+  if (!Number.isFinite(id) || id <= 0) {
+    return null
+  }
+
+  const precio = Number(record.precio ?? record.price ?? 0)
+  const codigoValue = record.codigo ?? record.code ?? record.sku
+
+  return {
+    id,
+    codigo: typeof codigoValue === 'string' ? codigoValue : codigoValue != null ? String(codigoValue) : undefined,
+    nombre:
+      typeof record.nombre === 'string'
+        ? record.nombre
+        : typeof record.name === 'string'
+          ? record.name
+          : `Producto ${id}`,
+    descripcion:
+      typeof record.descripcion === 'string'
+        ? record.descripcion
+        : typeof record.description === 'string'
+          ? record.description
+          : '',
+    precio: Number.isFinite(precio) ? precio : 0,
+    imagen:
+      typeof record.imagen === 'string'
+        ? record.imagen
+        : typeof record.image === 'string'
+          ? record.image
+          : undefined,
+    categoryId: Number(record.categoryId ?? record.category_id ?? record.categoriaId ?? record.categoria_id ?? 0),
+    category: undefined,
+    disponible:
+      typeof record.disponible === 'boolean'
+        ? record.disponible
+        : typeof record.available === 'boolean'
+          ? record.available
+          : true,
+  }
+}
+
+function unwrapProductsPayload(payload: unknown): Product[] {
+  if (Array.isArray(payload)) {
+    return payload.map((item) => normalizeProductRecord(item)).filter((item): item is Product => item !== null)
+  }
+
+  if (typeof payload === 'object' && payload !== null) {
+    const record = payload as Record<string, unknown>
+    const keys = ['data', 'items', 'products', 'platos', 'results']
+
+    for (const key of keys) {
+      const value = record[key]
+      if (Array.isArray(value)) {
+        return value.map((item) => normalizeProductRecord(item)).filter((item): item is Product => item !== null)
+      }
+    }
+  }
+
+  return []
+}
+
 function getUserDisplayName(user: CreatedUser): string {
   const record = user as unknown as Record<string, unknown>
   const directName = record.nombre ?? record.name ?? ''
@@ -228,6 +297,35 @@ function getMesaDisplayName(mesa: Mesa): string {
 function getProductDisplayName(product: Product): string {
   const code = product.codigo ? `${product.codigo} • ` : ''
   return `${code}${product.nombre}`
+}
+
+function findProductByQuery(products: Product[], rawQuery: string): Product | null {
+  const normalized = rawQuery.trim().toUpperCase()
+  if (!normalized) {
+    return null
+  }
+
+  const exact = products.find((product) => String(product.codigo ?? '').trim().toUpperCase() === normalized)
+  if (exact) {
+    return exact
+  }
+
+  const idMatch = products.find((product) => String(product.id) === normalized)
+  if (idMatch) {
+    return idMatch
+  }
+
+  const exactNameMatch = products.find((product) => product.nombre.trim().toUpperCase() === normalized)
+  if (exactNameMatch) {
+    return exactNameMatch
+  }
+
+  return (
+    products.find((product) => {
+      const code = String(product.codigo ?? '').trim().toUpperCase()
+      return code.includes(normalized) || product.nombre.trim().toUpperCase().includes(normalized)
+    }) ?? null
+  )
 }
 
 function getPedidoMesaLabel(pedido: Pedido): string {
@@ -280,10 +378,19 @@ function canDeletePedido(estado: string): boolean {
   return normalized === 'BORRADOR' || normalized === 'CANCELADO'
 }
 
-export default function PedidosPage() {
+interface PedidosPageProps {
+  fixedType?: TipoPedido
+}
+
+export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
   const { user } = useAuth()
   const location = useLocation()
   const currentRole = normalizeRole(user)
+  const isTakeoutMode = String(fixedType ?? '').trim().toUpperCase() === 'LLEVAR'
+  const pageTitle = isTakeoutMode ? 'Pedidos para llevar' : 'Pedidos'
+  const pageDescription = isTakeoutMode
+    ? 'Gestiona pedidos para llevar en un flujo simple: crear, editar lineas y controlar estado.'
+    : 'Gestiona pedidos por mesa o para llevar, controla detalles, pagos y estado operativo en un solo lugar.'
   const [pedidos, setPedidos] = useState<Pedido[]>([])
   const [mesas, setMesas] = useState<Mesa[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -315,6 +422,7 @@ export default function PedidosPage() {
   const [detailDialogOpen, setDetailDialogOpen] = useState(false)
   const [editingDetailId, setEditingDetailId] = useState<number | null>(null)
   const [detailForm, setDetailForm] = useState({
+    codigoProducto: '',
     productoId: '',
     cantidad: '1',
     precioUnitario: '',
@@ -329,6 +437,24 @@ export default function PedidosPage() {
   }, [location.state])
 
   useEffect(() => {
+    if (!isTakeoutMode) {
+      return
+    }
+
+    setFilterForm((current) => ({
+      ...current,
+      tipo: 'LLEVAR',
+      mesaId: '',
+    }))
+
+    setPedidoForm((current) => ({
+      ...current,
+      tipo: 'LLEVAR',
+      mesaId: '',
+    }))
+  }, [isTakeoutMode])
+
+  useEffect(() => {
     if (user?.id) {
       setPedidoForm((current) =>
         current.usuarioId ? current : { ...current, usuarioId: String(user.id) },
@@ -341,6 +467,10 @@ export default function PedidosPage() {
   }, [])
 
   useEffect(() => {
+    if (isTakeoutMode) {
+      return
+    }
+
     if (!mesaSelection) {
       return
     }
@@ -352,14 +482,19 @@ export default function PedidosPage() {
       mesaId: String(mesaSelection.mesaId),
       tipo: 'MESA',
     }))
-  }, [mesaSelection, user])
+  }, [isTakeoutMode, mesaSelection, user])
 
   async function loadInitialData() {
     setLoading(true)
     setError(null)
 
     try {
-      const requestList = [pedidosService.getAll(), mesasService.getAll(), menuService.getProducts(), pedidosService.getPaymentMethods()]
+      const requestList = [
+        pedidosService.getAll(isTakeoutMode ? { tipo: 'LLEVAR' } : undefined),
+        mesasService.getAll(),
+        menuService.getProducts(),
+        pedidosService.getPaymentMethods(),
+      ]
 
       if (currentRole === 'ADMIN') {
         requestList.splice(3, 0, usuariosService.listUsers())
@@ -372,7 +507,7 @@ export default function PedidosPage() {
 
       setPedidos(unwrapArrayPayload<Pedido>(pedidosResponse.data))
       setMesas(unwrapArrayPayload<Mesa>(mesasResponse.data))
-      setProducts(unwrapArrayPayload<Product>(productsResponse.data))
+      setProducts(unwrapProductsPayload(productsResponse.data))
       if (usersResponse) {
         setUsers(unwrapArrayPayload<CreatedUser>(usersResponse.data))
       } else if (user) {
@@ -410,8 +545,12 @@ export default function PedidosPage() {
       const query: PedidoListQuery = {}
 
       if (activeFilters.estado) query.estado = activeFilters.estado
-      if (activeFilters.tipo) query.tipo = activeFilters.tipo
-      if (activeFilters.mesaId) query.mesaId = Number(activeFilters.mesaId)
+      if (isTakeoutMode) {
+        query.tipo = 'LLEVAR'
+      } else {
+        if (activeFilters.tipo) query.tipo = activeFilters.tipo
+        if (activeFilters.mesaId) query.mesaId = Number(activeFilters.mesaId)
+      }
       if (activeFilters.usuarioId) query.usuarioId = Number(activeFilters.usuarioId)
       if (activeFilters.fechaDesde) query.fechaDesde = activeFilters.fechaDesde
       if (activeFilters.fechaHasta) query.fechaHasta = activeFilters.fechaHasta
@@ -438,8 +577,9 @@ export default function PedidosPage() {
     const borradores = pedidos.filter((pedido) => String(pedido.estado).toUpperCase() === 'BORRADOR').length
     const facturados = pedidos.filter((pedido) => String(pedido.estado).toUpperCase() === 'FACTURADO').length
     const conMesa = pedidos.filter((pedido) => String(pedido.tipo).toUpperCase() === 'MESA').length
+    const paraLlevar = pedidos.filter((pedido) => String(pedido.tipo).toUpperCase() === 'LLEVAR').length
 
-    return { totalPedidos, borradores, facturados, conMesa }
+    return { totalPedidos, borradores, facturados, conMesa, paraLlevar }
   }, [pedidos])
 
   const sortedPedidos = useMemo(() => {
@@ -450,14 +590,15 @@ export default function PedidosPage() {
     })
   }, [pedidos])
 
-  function resetPedidoForm() {
-    setPedidoForm(initialPedidoForm)
-  }
-
   function openCreateDialog() {
     setPedidoDialogMode('create')
     setSelectedPedido(null)
-    resetPedidoForm()
+    setPedidoForm((current) => ({
+      ...initialPedidoForm,
+      usuarioId: current.usuarioId || (user ? String(user.id) : ''),
+      tipo: isTakeoutMode ? 'LLEVAR' : initialPedidoForm.tipo,
+      mesaId: isTakeoutMode ? '' : initialPedidoForm.mesaId,
+    }))
   }
 
   function openEditDialog(pedido: Pedido) {
@@ -467,7 +608,7 @@ export default function PedidosPage() {
       codigo: pedido.codigo ?? '',
       mesaId: pedido.mesaId ? String(pedido.mesaId) : '',
       usuarioId: pedido.usuarioId ? String(pedido.usuarioId) : '',
-      tipo: String(pedido.tipo).toUpperCase() === 'LLEVAR' ? 'LLEVAR' : 'MESA',
+      tipo: isTakeoutMode ? 'LLEVAR' : String(pedido.tipo).toUpperCase() === 'LLEVAR' ? 'LLEVAR' : 'MESA',
       estado: normalizeOrderState(String(pedido.estado)),
       impuesto: String(pedido.impuesto ?? 0),
       detalles: initialPedidoForm.detalles,
@@ -493,9 +634,29 @@ export default function PedidosPage() {
       ...current,
       detalles: [
         ...current.detalles,
-        { productoId: '', cantidad: '1', precioUnitario: '', observacion: '' },
+        { codigoProducto: '', productoId: '', productoNombre: '', cantidad: '1', precioUnitario: '', observacion: '' },
       ],
     }))
+  }
+
+  function applyProductCodeToLine(index: number, rawCode: string) {
+    const product = findProductByQuery(products, rawCode)
+    updatePedidoLine(index, {
+      codigoProducto: rawCode,
+      productoId: product ? String(product.id) : '',
+      productoNombre: product?.nombre ?? '',
+      precioUnitario: product ? String(product.precio) : '',
+    })
+  }
+
+  function applyProductSelectionToLine(index: number, rawProductId: string) {
+    const product = products.find((item) => String(item.id) === rawProductId)
+    updatePedidoLine(index, {
+      productoId: rawProductId,
+      codigoProducto: product?.codigo ?? rawProductId,
+      productoNombre: product?.nombre ?? '',
+      precioUnitario: product ? String(product.precio) : '',
+    })
   }
 
   function updatePedidoLine(index: number, nextValue: Partial<PedidoLineFormState>) {
@@ -514,12 +675,12 @@ export default function PedidosPage() {
 
   async function handleSavePedido() {
     const validation = pedidoSchema.safeParse({
-      codigo: pedidoForm.codigo.trim() || undefined,
+      codigo: isTakeoutMode ? undefined : pedidoForm.codigo.trim() || undefined,
       mesaId: pedidoForm.tipo === 'MESA' ? pedidoForm.mesaId : undefined,
-      usuarioId: pedidoForm.usuarioId,
+      usuarioId: isTakeoutMode ? String(user?.id ?? pedidoForm.usuarioId) : pedidoForm.usuarioId,
       tipo: pedidoForm.tipo,
       estado: pedidoForm.estado,
-      impuesto: pedidoForm.impuesto,
+      impuesto: isTakeoutMode ? '0' : pedidoForm.impuesto,
       detalles: pedidoForm.detalles.map((line) => ({
         productoId: line.productoId,
         cantidad: line.cantidad,
@@ -603,13 +764,15 @@ export default function PedidosPage() {
 
   function openCreateDetailDialog() {
     setEditingDetailId(null)
-    setDetailForm({ productoId: '', cantidad: '1', precioUnitario: '', observacion: '' })
+    setDetailForm({ codigoProducto: '', productoId: '', cantidad: '1', precioUnitario: '', observacion: '' })
     setDetailDialogOpen(true)
   }
 
   function openEditDetailDialog(detail: PedidoDetalle) {
     setEditingDetailId(detail.id)
+    const matchedProduct = products.find((product) => product.id === detail.productoId)
     setDetailForm({
+      codigoProducto: matchedProduct?.codigo ?? '',
       productoId: String(detail.productoId),
       cantidad: String(detail.cantidad),
       precioUnitario: String(detail.precioUnitario),
@@ -814,11 +977,11 @@ export default function PedidosPage() {
                 variant="h4"
                 sx={{ fontWeight: 800, color: COLOR_GOLD, fontFamily: '"Cormorant Garamond", serif' }}
               >
-                Pedidos
+                {pageTitle}
               </Typography>
             </Stack>
             <Typography sx={{ color: COLOR_MUTED, maxWidth: 760 }}>
-              Gestiona pedidos por mesa o para llevar, controla detalles, pagos y estado operativo en un solo lugar.
+              {pageDescription}
             </Typography>
           </Box>
 
@@ -834,7 +997,7 @@ export default function PedidosPage() {
               '&:hover': { background: `linear-gradient(135deg, #e5c253 0%, #f7df8d 100%)` },
             }}
           >
-            Nuevo pedido
+            {isTakeoutMode ? 'Nuevo pedido para llevar' : 'Nuevo pedido'}
           </Button>
         </Stack>
       </Paper>
@@ -851,7 +1014,9 @@ export default function PedidosPage() {
           { label: 'Pedidos', value: summary.totalPedidos },
           { label: 'Borradores', value: summary.borradores },
           { label: 'Facturados', value: summary.facturados },
-          { label: 'Pedidos por mesa', value: summary.conMesa },
+          isTakeoutMode
+            ? { label: 'Para llevar', value: summary.paraLlevar }
+            : { label: 'Pedidos por mesa', value: summary.conMesa },
         ].map((item) => (
           <Card
             key={item.label}
@@ -908,43 +1073,69 @@ export default function PedidosPage() {
               ))}
             </TextField>
 
-            <TextField
-              select
-              fullWidth
-              label="Tipo"
-              value={filterForm.tipo}
-              onChange={(event) => setFilterForm((current) => ({ ...current, tipo: event.target.value }))}
-              sx={{
-                '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
-                '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
-              }}
-            >
-              <MenuItem value="">Todos</MenuItem>
-              {ORDER_TYPES.map((type) => (
-                <MenuItem key={type} value={type}>
-                  {type}
-                </MenuItem>
-              ))}
-            </TextField>
+            {isTakeoutMode ? (
+              <TextField
+                fullWidth
+                label="Tipo"
+                value="LLEVAR"
+                disabled
+                sx={{
+                  '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                  '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                }}
+              />
+            ) : (
+              <TextField
+                select
+                fullWidth
+                label="Tipo"
+                value={filterForm.tipo}
+                onChange={(event) => setFilterForm((current) => ({ ...current, tipo: event.target.value }))}
+                sx={{
+                  '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                  '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                }}
+              >
+                <MenuItem value="">Todos</MenuItem>
+                {ORDER_TYPES.map((type) => (
+                  <MenuItem key={type} value={type}>
+                    {type}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
 
-            <TextField
-              select
-              fullWidth
-              label="Mesa"
-              value={filterForm.mesaId}
-              onChange={(event) => setFilterForm((current) => ({ ...current, mesaId: event.target.value }))}
-              sx={{
-                '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
-                '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
-              }}
-            >
-              <MenuItem value="">Todas</MenuItem>
-              {mesas.map((mesa) => (
-                <MenuItem key={mesa.id} value={mesa.id}>
-                  {getMesaDisplayName(mesa)}
-                </MenuItem>
-              ))}
-            </TextField>
+            {isTakeoutMode ? (
+              <TextField
+                fullWidth
+                label="Mesa"
+                value="No aplica"
+                disabled
+                sx={{
+                  '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                  '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                }}
+              />
+            ) : (
+              <TextField
+                select
+                fullWidth
+                label="Mesa"
+                value={filterForm.mesaId}
+                onChange={(event) => setFilterForm((current) => ({ ...current, mesaId: event.target.value }))}
+                sx={{
+                  '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                  '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                }}
+              >
+                <MenuItem value="">Todas</MenuItem>
+                {mesas.map((mesa) => (
+                  <MenuItem key={mesa.id} value={mesa.id}>
+                    {getMesaDisplayName(mesa)}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
           </Box>
 
           <Box
@@ -954,24 +1145,37 @@ export default function PedidosPage() {
               gap: 2,
             }}
           >
-            <TextField
-              select
-              fullWidth
-              label="Usuario"
-              value={filterForm.usuarioId}
-              onChange={(event) => setFilterForm((current) => ({ ...current, usuarioId: event.target.value }))}
-              sx={{
-                '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
-                '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
-              }}
-            >
-              <MenuItem value="">Todos</MenuItem>
-              {users.map((user) => (
-                <MenuItem key={user.id} value={user.id}>
-                  {getUserDisplayName(user)}
-                </MenuItem>
-              ))}
-            </TextField>
+            {isTakeoutMode ? (
+              <TextField
+                fullWidth
+                label="Usuario"
+                value={user?.nombre ?? 'Usuario actual'}
+                disabled
+                sx={{
+                  '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                  '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                }}
+              />
+            ) : (
+              <TextField
+                select
+                fullWidth
+                label="Usuario"
+                value={filterForm.usuarioId}
+                onChange={(event) => setFilterForm((current) => ({ ...current, usuarioId: event.target.value }))}
+                sx={{
+                  '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                  '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                }}
+              >
+                <MenuItem value="">Todos</MenuItem>
+                {users.map((user) => (
+                  <MenuItem key={user.id} value={user.id}>
+                    {getUserDisplayName(user)}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
 
             <TextField
               label="Desde"
@@ -1000,8 +1204,11 @@ export default function PedidosPage() {
             <Button
               variant="outlined"
               onClick={() => {
-                setFilterForm(initialFilterState)
-                void loadPedidos(initialFilterState)
+                const resetFilters = isTakeoutMode
+                  ? { ...initialFilterState, tipo: 'LLEVAR', mesaId: '' }
+                  : initialFilterState
+                setFilterForm(resetFilters)
+                void loadPedidos(resetFilters)
               }}
               sx={{ color: COLOR_TEXT, borderColor: 'rgba(212,175,55,0.45)' }}
             >
@@ -1052,7 +1259,7 @@ export default function PedidosPage() {
               <TableRow>
                 <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Código</TableCell>
                 <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Mesa</TableCell>
-                <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Usuario</TableCell>
+                {!isTakeoutMode ? <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Usuario</TableCell> : null}
                 <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Tipo</TableCell>
                 <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Estado</TableCell>
                 <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Total</TableCell>
@@ -1072,7 +1279,7 @@ export default function PedidosPage() {
                   <TableRow key={pedido.id} hover sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
                     <TableCell sx={{ color: COLOR_TEXT, fontWeight: 700 }}>{pedido.codigo ?? `#${pedido.id}`}</TableCell>
                     <TableCell sx={{ color: COLOR_TEXT }}>{getPedidoMesaLabel(pedido)}</TableCell>
-                    <TableCell sx={{ color: COLOR_MUTED }}>{getPedidoUserLabel(pedido, users)}</TableCell>
+                    {!isTakeoutMode ? <TableCell sx={{ color: COLOR_MUTED }}>{getPedidoUserLabel(pedido, users)}</TableCell> : null}
                     <TableCell sx={{ color: COLOR_MUTED }}>{pedido.tipo}</TableCell>
                     <TableCell>
                       <Chip
@@ -1123,40 +1330,55 @@ export default function PedidosPage() {
                 gap: 2,
               }}
             >
-              <TextField
-                label="Código"
-                value={pedidoForm.codigo}
-                onChange={(event) => setPedidoForm((current) => ({ ...current, codigo: event.target.value }))}
-                fullWidth
-                sx={{
-                  '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
-                  '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
-                }}
-              />
+              {isTakeoutMode ? null : (
+                <TextField
+                  label="Código"
+                  value={pedidoForm.codigo}
+                  onChange={(event) => setPedidoForm((current) => ({ ...current, codigo: event.target.value }))}
+                  fullWidth
+                  sx={{
+                    '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                    '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                  }}
+                />
+              )}
 
-              <TextField
-                select
-                label="Tipo"
-                value={pedidoForm.tipo}
-                onChange={(event) =>
-                  setPedidoForm((current) => ({
-                    ...current,
-                    tipo: normalizeOrderType(event.target.value),
-                    mesaId: event.target.value === 'LLEVAR' ? '' : current.mesaId,
-                  }))
-                }
-                fullWidth
-                sx={{
-                  '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
-                  '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
-                }}
-              >
-                {ORDER_TYPES.map((type) => (
-                  <MenuItem key={type} value={type}>
-                    {type}
-                  </MenuItem>
-                ))}
-              </TextField>
+              {isTakeoutMode ? (
+                <TextField
+                  label="Tipo"
+                  value="LLEVAR"
+                  fullWidth
+                  disabled
+                  sx={{
+                    '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                    '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                  }}
+                />
+              ) : (
+                <TextField
+                  select
+                  label="Tipo"
+                  value={pedidoForm.tipo}
+                  onChange={(event) =>
+                    setPedidoForm((current) => ({
+                      ...current,
+                      tipo: normalizeOrderType(event.target.value),
+                      mesaId: event.target.value === 'LLEVAR' ? '' : current.mesaId,
+                    }))
+                  }
+                  fullWidth
+                  sx={{
+                    '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                    '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                  }}
+                >
+                  {ORDER_TYPES.map((type) => (
+                    <MenuItem key={type} value={type}>
+                      {type}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              )}
 
               <TextField
                 select
@@ -1178,26 +1400,28 @@ export default function PedidosPage() {
                 ))}
               </TextField>
 
-              <TextField
-                select
-                label="Usuario"
-                value={pedidoForm.usuarioId}
-                onChange={(event) => setPedidoForm((current) => ({ ...current, usuarioId: event.target.value }))}
-                fullWidth
-                sx={{
-                  '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
-                  '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
-                }}
-              >
-                <MenuItem value="">Selecciona un usuario</MenuItem>
-                {users.map((user) => (
-                  <MenuItem key={user.id} value={user.id}>
-                    {getUserDisplayName(user)}
-                  </MenuItem>
-                ))}
-              </TextField>
+              {isTakeoutMode ? null : (
+                <TextField
+                  select
+                  label="Usuario"
+                  value={pedidoForm.usuarioId}
+                  onChange={(event) => setPedidoForm((current) => ({ ...current, usuarioId: event.target.value }))}
+                  fullWidth
+                  sx={{
+                    '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                    '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                  }}
+                >
+                  <MenuItem value="">Selecciona un usuario</MenuItem>
+                  {users.map((user) => (
+                    <MenuItem key={user.id} value={user.id}>
+                      {getUserDisplayName(user)}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              )}
 
-              {pedidoForm.tipo === 'MESA' ? (
+              {pedidoForm.tipo === 'MESA' && !isTakeoutMode ? (
                 <TextField
                   select
                   label="Mesa"
@@ -1229,17 +1453,19 @@ export default function PedidosPage() {
                 />
               )}
 
-              <TextField
-                label="Impuesto"
-                value={pedidoForm.impuesto}
-                onChange={(event) => setPedidoForm((current) => ({ ...current, impuesto: event.target.value }))}
-                type="number"
-                fullWidth
-                sx={{
-                  '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
-                  '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
-                }}
-              />
+              {isTakeoutMode ? null : (
+                <TextField
+                  label="Impuesto"
+                  value={pedidoForm.impuesto}
+                  onChange={(event) => setPedidoForm((current) => ({ ...current, impuesto: event.target.value }))}
+                  type="number"
+                  fullWidth
+                  sx={{
+                    '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                    '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                  }}
+                />
+              )}
             </Box>
 
             <Divider sx={{ borderColor: 'rgba(212,175,55,0.18)' }} />
@@ -1264,9 +1490,13 @@ export default function PedidosPage() {
                 </Stack>
 
                 <Stack spacing={2}>
-                  {pedidoForm.detalles.map((line, index) => (
+                  {pedidoForm.detalles.map((line, index) => {
+                    const matchedProduct = products.find((product) => String(product.id) === line.productoId)
+                    const matchedProductName = line.productoNombre || matchedProduct?.nombre || (line.productoId ? `#${line.productoId}` : '')
+
+                    return (
                     <Paper
-                      key={`${index}-${line.productoId}`}
+                      key={`line-${index}`}
                       sx={{
                         p: 2,
                         borderRadius: 2,
@@ -1278,16 +1508,44 @@ export default function PedidosPage() {
                         <Box
                           sx={{
                             display: 'grid',
-                            gridTemplateColumns: { xs: '1fr', md: 'repeat(4, minmax(0, 1fr))' },
+                            gridTemplateColumns: {
+                              xs: '1fr',
+                              md: isTakeoutMode ? 'repeat(5, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))',
+                            },
                             gap: 2,
                           }}
                         >
-                          {products.length > 0 ? (
+                          {isTakeoutMode ? (
+                            <>
+                              <TextField
+                                label="Código o nombre"
+                                value={line.codigoProducto}
+                                onChange={(event) => applyProductCodeToLine(index, event.target.value)}
+                                helperText="Escribe código o nombre para autocompletar producto y precio."
+                                fullWidth
+                                sx={{
+                                  '& .MuiFormHelperText-root': { color: COLOR_MUTED },
+                                  '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                                  '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                                }}
+                              />
+                              <TextField
+                                label="Producto"
+                                value={matchedProductName}
+                                fullWidth
+                                disabled
+                                sx={{
+                                  '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                                  '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                                }}
+                              />
+                            </>
+                          ) : products.length > 0 ? (
                             <TextField
                               select
                               label="Producto"
                               value={line.productoId}
-                              onChange={(event) => updatePedidoLine(index, { productoId: event.target.value })}
+                              onChange={(event) => applyProductSelectionToLine(index, event.target.value)}
                               fullWidth
                               sx={{
                                 '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
@@ -1354,7 +1612,8 @@ export default function PedidosPage() {
                         </Stack>
                       </Stack>
                     </Paper>
-                  ))}
+                    )
+                  })}
                 </Stack>
               </Stack>
             ) : (

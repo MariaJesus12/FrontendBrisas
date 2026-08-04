@@ -685,8 +685,8 @@ export default function MesasPage() {
     }
   }
 
-  function findProductByCode(rawCode: string): Product | null {
-    const normalized = rawCode.trim().toUpperCase()
+  function findProductByQuery(rawQuery: string): Product | null {
+    const normalized = rawQuery.trim().toUpperCase()
     if (!normalized) {
       return null
     }
@@ -699,6 +699,11 @@ export default function MesasPage() {
     const idMatch = products.find((product) => String(product.id) === normalized)
     if (idMatch) {
       return idMatch
+    }
+
+    const exactNameMatch = products.find((product) => product.nombre.trim().toUpperCase() === normalized)
+    if (exactNameMatch) {
+      return exactNameMatch
     }
 
     const partialMatch = products.find((product) => {
@@ -870,13 +875,18 @@ export default function MesasPage() {
   }
 
   function applyProductCode(index: number, code: string) {
-    const product = findProductByCode(code)
+    const product = findProductByQuery(code)
     if (!product) {
+      updatePedidoLine(index, {
+        codigoProducto: code,
+        productoId: '',
+        productoNombre: '',
+      })
       return
     }
 
     updatePedidoLine(index, {
-      codigoProducto: product.codigo ?? String(product.id),
+      codigoProducto: code,
       productoId: String(product.id),
       productoNombre: product.nombre,
       precioUnitario: String(product.precio),
@@ -1719,7 +1729,7 @@ export default function MesasPage() {
             <Stack spacing={2}>
               {pedidoForm.lineas.map((linea, index) => (
                 <Paper
-                  key={`${index}-${linea.productoId}`}
+                  key={`line-${index}`}
                   sx={{
                     p: 2,
                     backgroundColor: 'rgba(255,255,255,0.03)',
@@ -1742,7 +1752,7 @@ export default function MesasPage() {
                     </Stack>
 
                     <TextField
-                      label="Código de producto"
+                      label="Código o nombre"
                       value={linea.codigoProducto}
                       onChange={(event) => {
                         const nextCode = event.target.value
@@ -1750,7 +1760,7 @@ export default function MesasPage() {
                         applyProductCode(index, nextCode)
                       }}
                       fullWidth
-                      helperText={linea.productoNombre || 'Escanea o escribe el código para autocompletar nombre y precio.'}
+                      helperText={linea.productoNombre || 'Escribe código o nombre para autocompletar producto y precio.'}
                       sx={{
                         '& .MuiFormHelperText-root': { color: COLOR_MUTED },
                         '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },

@@ -38,6 +38,7 @@ const adminNavItems = [
 const staffNavItems = [
   { label: 'Dashboard', path: '/dashboard', icon: <DashboardIcon /> },
   { label: 'Mesas', path: '/mesas', icon: <EventSeatIcon /> },
+  { label: 'Pedidos para llevar', path: '/pedidos-llevar', icon: <ReceiptIcon /> },
   { label: 'Reservaciones', path: '/reservaciones', icon: <EventSeatIcon /> },
   { label: 'Pedidos', path: '/pedidos', icon: <ReceiptIcon /> },
 ]
