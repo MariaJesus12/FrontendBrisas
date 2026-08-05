@@ -2,7 +2,26 @@ import axios from 'axios'
 import api from './api'
 
 const TIPO_CAMBIO_ENDPOINTS = ['/tipo-cambio', '/tipo_cambio', '/tipos-cambio', '/tipos_cambio'] as const
-let resolvedTipoCambioEndpoint: string | null = null
+const TIPO_CAMBIO_ENDPOINT_STORAGE_KEY = 'resolvedTipoCambioEndpoint'
+
+function readStoredEndpoint(): string | null {
+  try {
+    const stored = localStorage.getItem(TIPO_CAMBIO_ENDPOINT_STORAGE_KEY)
+    return stored && TIPO_CAMBIO_ENDPOINTS.includes(stored as (typeof TIPO_CAMBIO_ENDPOINTS)[number]) ? stored : null
+  } catch {
+    return null
+  }
+}
+
+function storeResolvedEndpoint(endpoint: string) {
+  try {
+    localStorage.setItem(TIPO_CAMBIO_ENDPOINT_STORAGE_KEY, endpoint)
+  } catch {
+    // Ignore storage errors and continue with in-memory fallback.
+  }
+}
+
+let resolvedTipoCambioEndpoint: string | null = readStoredEndpoint()
 
 export interface TipoCambio {
   id: number
@@ -72,6 +91,7 @@ async function getAllWithFallback() {
     try {
       const response = await api.get<TipoCambio[]>(endpoint)
       resolvedTipoCambioEndpoint = endpoint
+      storeResolvedEndpoint(endpoint)
       return response
     } catch (error) {
       lastError = error
@@ -91,6 +111,7 @@ async function getByIdWithFallback(id: number) {
     try {
       const response = await api.get<TipoCambio>(`${endpoint}/${id}`)
       resolvedTipoCambioEndpoint = endpoint
+      storeResolvedEndpoint(endpoint)
       return response
     } catch (error) {
       lastError = error
@@ -112,6 +133,7 @@ async function postWithFallback(data: CreateTipoCambioDto) {
       try {
         const response = await api.post<TipoCambio>(endpoint, payload)
         resolvedTipoCambioEndpoint = endpoint
+        storeResolvedEndpoint(endpoint)
         return response
       } catch (error) {
         lastError = error
@@ -140,6 +162,7 @@ async function putWithFallback(id: number, data: CreateTipoCambioDto) {
       try {
         const response = await api.put<TipoCambio>(`${endpoint}/${id}`, payload)
         resolvedTipoCambioEndpoint = endpoint
+        storeResolvedEndpoint(endpoint)
         return response
       } catch (error) {
         lastError = error

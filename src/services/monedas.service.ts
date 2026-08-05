@@ -2,7 +2,26 @@ import axios from 'axios'
 import api from './api'
 
 const MONEDAS_ENDPOINTS = ['/monedas', '/moneda', '/tipos-moneda', '/tipo-moneda'] as const
-let resolvedMonedasEndpoint: string | null = null
+const MONEDAS_ENDPOINT_STORAGE_KEY = 'resolvedMonedasEndpoint'
+
+function readStoredEndpoint(): string | null {
+  try {
+    const stored = localStorage.getItem(MONEDAS_ENDPOINT_STORAGE_KEY)
+    return stored && MONEDAS_ENDPOINTS.includes(stored as (typeof MONEDAS_ENDPOINTS)[number]) ? stored : null
+  } catch {
+    return null
+  }
+}
+
+function storeResolvedEndpoint(endpoint: string) {
+  try {
+    localStorage.setItem(MONEDAS_ENDPOINT_STORAGE_KEY, endpoint)
+  } catch {
+    // Ignore storage errors and continue with in-memory fallback.
+  }
+}
+
+let resolvedMonedasEndpoint: string | null = readStoredEndpoint()
 
 export interface Moneda {
   id: number
@@ -33,6 +52,7 @@ async function getAllWithFallback() {
     try {
       const response = await api.get<Moneda[]>(endpoint)
       resolvedMonedasEndpoint = endpoint
+      storeResolvedEndpoint(endpoint)
       return response
     } catch (error) {
       lastError = error
@@ -52,6 +72,7 @@ async function getByIdWithFallback(id: number) {
     try {
       const response = await api.get<Moneda>(`${endpoint}/${id}`)
       resolvedMonedasEndpoint = endpoint
+      storeResolvedEndpoint(endpoint)
       return response
     } catch (error) {
       lastError = error

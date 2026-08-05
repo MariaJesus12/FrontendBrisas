@@ -28,6 +28,7 @@ import RestaurantIcon from '@mui/icons-material/Restaurant'
 import EventSeatIcon from '@mui/icons-material/EventSeat'
 import { toast } from 'react-toastify'
 import { useAuth } from '@/hooks/useAuth'
+import FacturacionModal from '@/components/facturacion/FacturacionModal'
 import { menuService } from '@/services/menu.service'
 import { pedidosService } from '@/services/pedidos.service'
 import { mesaSchema } from '@/schemas/mesa.schema'
@@ -465,22 +466,6 @@ function formatCurrency(value: number | null | undefined): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   }).format(safeValue)
-}
-
-function formatDateTime(value?: string): string {
-  if (!value) {
-    return 'Sin fecha'
-  }
-
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) {
-    return value
-  }
-
-  return parsed.toLocaleString('es-CR', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  })
 }
 
 export default function MesasPage() {
@@ -1054,49 +1039,13 @@ export default function MesasPage() {
       return
     }
 
-    setPedidoLoading(true)
-    try {
-      const [pedidoResult, detailsResult] = await Promise.allSettled([
-        pedidosService.getById(pedidoId),
-        pedidosService.getDetails(pedidoId),
-      ])
-
-      const previewPedido =
-        pedidoResult.status === 'fulfilled' && pedidoResult.value?.data
-          ? normalizePedidoRecord(pedidoResult.value.data)
-          : selectedPedido
-
-      const previewDetails =
-        detailsResult.status === 'fulfilled'
-          ? unwrapPedidoDetailsPayload(detailsResult.value.data)
-          : currentPedidoDetails
-
-      const fallbackDetails = Array.isArray(previewPedido.detalles)
-        ? previewPedido.detalles.map((item) => normalizePedidoDetailRecord(item))
-        : currentPedidoDetails
-
-      const safePreviewDetails = mergePedidoDetails(previewDetails, fallbackDetails)
-
-      setInvoicePreviewPedido(previewPedido)
-      setInvoicePreviewDetails(safePreviewDetails)
-      setInvoicePreviewOpen(true)
-
-      if (hasDraftPedidoLineData()) {
-        toast.info('Hay lineas sin guardar. Guardalas si quieres incluirlas en esta factura.')
-      }
-
-      if (pedidoResult.status === 'rejected' || detailsResult.status === 'rejected') {
-        toast.info('Se mostró la vista previa con los datos disponibles localmente.')
-      }
-    } catch (requestError) {
-      const backendMessage =
-        axios.isAxiosError(requestError) && requestError.response
-          ? extractBackendMessage(requestError.response.data)
-          : ''
-      toast.error(backendMessage || 'No fue posible cargar la vista previa de la factura.')
-    } finally {
-      setPedidoLoading(false)
+    if (hasDraftPedidoLineData()) {
+      toast.info('Hay lineas sin guardar. Guardalas para incluirlas en la facturación.')
     }
+
+    setInvoicePreviewPedido(selectedPedido)
+    setInvoicePreviewDetails(currentPedidoDetails)
+    setInvoicePreviewOpen(true)
   }
 
   function openEditDetailDialog(detail: PedidoDetalle) {
@@ -1178,60 +1127,6 @@ export default function MesasPage() {
       setSaving(false)
     }
   }
-
-  async function handleFacturarPedido() {
-    if (!invoicePreviewPedido) {
-      toast.error('Primero abre la vista previa de la factura.')
-      return
-    }
-
-    const pedidoId = resolvePedidoId()
-    if (!pedidoId) {
-      toast.error('No se encontro un id de pedido valido para facturar.')
-      return
-    }
-
-    setSaving(true)
-    try {
-      await pedidosService.bill(pedidoId)
-      toast.success('Pedido facturado y cerrado correctamente.')
-      setInvoicePreviewOpen(false)
-      setInvoicePreviewPedido(null)
-      setInvoicePreviewDetails([])
-      await Promise.all([loadMesaPedido(Number(selectedMesa?.id ?? invoicePreviewPedido.mesaId ?? 0)), loadMesas()])
-    } catch (requestError) {
-      const backendMessage =
-        axios.isAxiosError(requestError) && requestError.response
-          ? extractBackendMessage(requestError.response.data)
-          : ''
-      toast.error(backendMessage || 'No fue posible facturar el pedido.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const invoicePreviewSubtotal = useMemo(
-    () =>
-      invoicePreviewDetails.reduce(
-        (sum, detalle) => sum + (detalle.subtotal ?? detalle.precioUnitario * detalle.cantidad),
-        0,
-      ),
-    [invoicePreviewDetails],
-  )
-
-  const invoicePreviewImpuesto = useMemo(() => {
-    const rawTax = Number(invoicePreviewPedido?.impuesto ?? 0)
-    return Number.isFinite(rawTax) ? rawTax : 0
-  }, [invoicePreviewPedido])
-
-  const invoicePreviewTotal = useMemo(() => {
-    const backendTotal = Number(invoicePreviewPedido?.total)
-    if (Number.isFinite(backendTotal) && backendTotal > 0) {
-      return backendTotal
-    }
-
-    return invoicePreviewSubtotal + invoicePreviewImpuesto
-  }, [invoicePreviewPedido, invoicePreviewSubtotal, invoicePreviewImpuesto])
 
   return (
     <Box sx={{ color: COLOR_TEXT }}>
@@ -1873,206 +1768,28 @@ export default function MesasPage() {
         </Box>
       </Drawer>
 
-      <Dialog
+      <FacturacionModal
         open={invoicePreviewOpen}
+        pedidoId={resolvePedidoId()}
+        pedidoFallback={invoicePreviewPedido}
+        detailsFallback={invoicePreviewDetails}
         onClose={() => {
           if (!saving) {
             setInvoicePreviewOpen(false)
           }
         }}
-        fullWidth
-        maxWidth="md"
-      >
-        <DialogTitle
-          sx={{
-            background:
-              'linear-gradient(135deg, rgba(20,12,10,0.97) 0%, rgba(36,18,11,0.92) 100%), radial-gradient(circle at top right, rgba(212,175,55,0.2) 0%, transparent 32%)',
-            color: COLOR_GOLD,
-            fontWeight: 800,
-            py: 2.5,
-          }}
-        >
-          Vista previa de factura
-        </DialogTitle>
+        onFacturado={async () => {
+          const mesaId = Number(selectedMesa?.id ?? invoicePreviewPedido?.mesaId ?? 0)
+          if (mesaId > 0) {
+            await Promise.all([loadMesaPedido(mesaId), loadMesas()])
+          } else {
+            await loadMesas()
+          }
 
-        <DialogContent sx={{ backgroundColor: '#120c0a', p: { xs: 2, sm: 3 } }}>
-          <Paper
-            sx={{
-              p: { xs: 2, sm: 3 },
-              borderRadius: 2.5,
-              background:
-                'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(251,245,232,0.98) 100%), radial-gradient(circle at top right, rgba(212,175,55,0.13) 0%, transparent 36%)',
-              color: '#2b1a12',
-              border: '1px solid rgba(143,29,46,0.18)',
-              boxShadow: '0 14px 34px rgba(0,0,0,0.26)',
-            }}
-          >
-            <Stack spacing={2.25}>
-              <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ justifyContent: 'space-between', gap: 2 }}>
-                <Box>
-                  <Typography sx={{ fontSize: '1.45rem', fontWeight: 900, color: '#8F1D2E', lineHeight: 1.1 }}>
-                    Restaurante Brisas
-                  </Typography>
-                  <Typography sx={{ color: 'rgba(43,26,18,0.72)', fontSize: '0.92rem', mt: 0.5 }}>
-                    Vista previa antes de impresión y facturación
-                  </Typography>
-                </Box>
-                <Box sx={{ textAlign: { xs: 'left', sm: 'right' } }}>
-                  <Typography sx={{ fontWeight: 800, color: '#2b1a12' }}>
-                    {invoicePreviewPedido?.codigo || `Pedido #${invoicePreviewPedido?.id ?? ''}`}
-                  </Typography>
-                  <Typography sx={{ color: 'rgba(43,26,18,0.72)', fontSize: '0.9rem' }}>
-                    Fecha: {formatDateTime(invoicePreviewPedido?.createdAt)}
-                  </Typography>
-                </Box>
-              </Stack>
-
-              <Box
-                sx={{
-                  display: 'grid',
-                  gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' },
-                  gap: 1.25,
-                }}
-              >
-                <Paper sx={{ p: 1.25, backgroundColor: 'rgba(143,29,46,0.06)', border: '1px solid rgba(143,29,46,0.12)' }}>
-                  <Typography sx={{ fontSize: '0.82rem', color: 'rgba(43,26,18,0.7)' }}>Mesa</Typography>
-                  <Typography sx={{ fontWeight: 800, color: '#2b1a12' }}>
-                    #{selectedMesa?.numero ?? invoicePreviewPedido?.mesa?.numero ?? invoicePreviewPedido?.mesaId ?? '-'}
-                  </Typography>
-                </Paper>
-                <Paper sx={{ p: 1.25, backgroundColor: 'rgba(143,29,46,0.06)', border: '1px solid rgba(143,29,46,0.12)' }}>
-                  <Typography sx={{ fontSize: '0.82rem', color: 'rgba(43,26,18,0.7)' }}>Mesero</Typography>
-                  <Typography sx={{ fontWeight: 800, color: '#2b1a12' }}>
-                    {invoicePreviewPedido?.usuario?.nombre || user?.nombre || 'Sin usuario'}
-                  </Typography>
-                </Paper>
-                <Paper sx={{ p: 1.25, backgroundColor: 'rgba(143,29,46,0.06)', border: '1px solid rgba(143,29,46,0.12)' }}>
-                  <Typography sx={{ fontSize: '0.82rem', color: 'rgba(43,26,18,0.7)' }}>Estado actual</Typography>
-                  <Typography sx={{ fontWeight: 800, color: '#2b1a12' }}>
-                    {invoicePreviewPedido?.estado ?? 'SIN ESTADO'}
-                  </Typography>
-                </Paper>
-              </Box>
-
-              <Divider sx={{ borderColor: 'rgba(43,26,18,0.16)' }} />
-
-              <Stack spacing={1}>
-                <Typography sx={{ color: '#8F1D2E', fontWeight: 800 }}>Detalle a imprimir</Typography>
-
-                {invoicePreviewDetails.length > 0 ? (
-                  <Box sx={{ borderRadius: 2, border: '1px solid rgba(43,26,18,0.14)', overflow: 'hidden' }}>
-                    <Box
-                      sx={{
-                        display: 'grid',
-                        gridTemplateColumns: 'minmax(0,2fr) 96px 128px 128px',
-                        gap: 1,
-                        py: 1,
-                        px: 1.25,
-                        backgroundColor: 'rgba(43,26,18,0.08)',
-                      }}
-                    >
-                      <Typography sx={{ fontWeight: 800, fontSize: '0.83rem' }}>Producto</Typography>
-                      <Typography sx={{ fontWeight: 800, fontSize: '0.83rem', textAlign: 'center' }}>Cant.</Typography>
-                      <Typography sx={{ fontWeight: 800, fontSize: '0.83rem', textAlign: 'right' }}>Precio</Typography>
-                      <Typography sx={{ fontWeight: 800, fontSize: '0.83rem', textAlign: 'right' }}>Subtotal</Typography>
-                    </Box>
-
-                    {invoicePreviewDetails.map((detalle) => {
-                      const subtotal = detalle.subtotal ?? detalle.precioUnitario * detalle.cantidad
-                      return (
-                        <Box
-                          key={detalle.id}
-                          sx={{
-                            display: 'grid',
-                            gridTemplateColumns: 'minmax(0,2fr) 96px 128px 128px',
-                            gap: 1,
-                            py: 1.1,
-                            px: 1.25,
-                            borderTop: '1px solid rgba(43,26,18,0.1)',
-                          }}
-                        >
-                          <Box>
-                            <Typography sx={{ fontWeight: 700, fontSize: '0.9rem', color: '#2b1a12' }}>
-                              {detalle.producto?.nombre ?? `Producto #${detalle.productoId}`}
-                            </Typography>
-                            {detalle.observacion ? (
-                              <Typography sx={{ fontSize: '0.78rem', color: 'rgba(43,26,18,0.72)' }}>
-                                Nota: {detalle.observacion}
-                              </Typography>
-                            ) : null}
-                          </Box>
-                          <Typography sx={{ textAlign: 'center', fontWeight: 700, color: '#2b1a12' }}>{detalle.cantidad}</Typography>
-                          <Typography sx={{ textAlign: 'right', fontWeight: 700, color: '#2b1a12' }}>
-                            {formatCurrency(detalle.precioUnitario)}
-                          </Typography>
-                          <Typography sx={{ textAlign: 'right', fontWeight: 800, color: '#8F1D2E' }}>
-                            {formatCurrency(subtotal)}
-                          </Typography>
-                        </Box>
-                      )
-                    })}
-                  </Box>
-                ) : (
-                  <Alert severity="warning" sx={{ backgroundColor: 'rgba(255,193,7,0.14)' }}>
-                    No hay líneas para facturar. Agrega productos antes de confirmar.
-                  </Alert>
-                )}
-              </Stack>
-
-              <Box sx={{ ml: 'auto', width: { xs: '100%', sm: 320 } }}>
-                <Stack spacing={1.1}>
-                  <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
-                    <Typography sx={{ color: 'rgba(43,26,18,0.75)' }}>Subtotal</Typography>
-                    <Typography sx={{ color: '#2b1a12', fontWeight: 700 }}>{formatCurrency(invoicePreviewSubtotal)}</Typography>
-                  </Stack>
-                  <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
-                    <Typography sx={{ color: 'rgba(43,26,18,0.75)' }}>Impuesto</Typography>
-                    <Typography sx={{ color: '#2b1a12', fontWeight: 700 }}>{formatCurrency(invoicePreviewImpuesto)}</Typography>
-                  </Stack>
-                  <Divider sx={{ borderColor: 'rgba(43,26,18,0.2)' }} />
-                  <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
-                    <Typography sx={{ color: '#8F1D2E', fontWeight: 900 }}>Total a facturar</Typography>
-                    <Typography sx={{ color: '#8F1D2E', fontWeight: 900 }}>{formatCurrency(invoicePreviewTotal)}</Typography>
-                  </Stack>
-                </Stack>
-              </Box>
-
-              <Typography sx={{ color: 'rgba(43,26,18,0.64)', fontSize: '0.78rem' }}>
-                Al confirmar, el backend recalcula subtotal, impuesto y total antes de generar la factura e impresión.
-              </Typography>
-            </Stack>
-          </Paper>
-        </DialogContent>
-
-        <DialogActions sx={{ backgroundColor: '#120c0a', p: 2.5 }}>
-          <Button
-            onClick={() => {
-              if (!saving) {
-                setInvoicePreviewOpen(false)
-              }
-            }}
-            sx={{ color: COLOR_TEXT }}
-            disabled={saving}
-          >
-            Volver
-          </Button>
-          <Button
-            variant="contained"
-            onClick={() => void handleFacturarPedido()}
-            disabled={saving || invoicePreviewDetails.length === 0}
-            sx={{
-              background: `linear-gradient(135deg, ${COLOR_MAROON} 0%, #b42f42 100%)`,
-              color: '#fff7ef',
-              fontWeight: 800,
-              '&:hover': {
-                background: 'linear-gradient(135deg, #a42535 0%, #c43b4f 100%)',
-              },
-            }}
-          >
-            {saving ? 'Facturando...' : 'Confirmar y facturar'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+          setInvoicePreviewPedido(null)
+          setInvoicePreviewDetails([])
+        }}
+      />
 
       <Dialog open={dialogOpen} onClose={closeDialog} fullWidth maxWidth="sm">
         <DialogTitle sx={{ backgroundColor: '#160f0c', color: COLOR_GOLD, fontWeight: 800 }}>

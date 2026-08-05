@@ -26,7 +26,41 @@ export interface PagoPedido {
     nombre?: string
   }
   monto: number
+  moneda?: string
+  monedaId?: number
+  montoColones?: number
+  montoRecibido?: number
+  montoRecibidoColones?: number
+  vuelto?: number
+  vueltoColones?: number
+  tipoCambioId?: number
+  accountId?: number
   referencia?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface PedidoAccountDetail {
+  id: number
+  detailId?: number
+  pedidoDetalleId?: number
+  productoId?: number
+  productoNombre?: string
+  cantidad?: number
+  precioUnitario?: number
+  subtotal?: number
+}
+
+export interface PedidoAccount {
+  id: number
+  numeroCuenta?: number
+  nombre?: string
+  numero?: string
+  activo?: boolean
+  detalles?: PedidoAccountDetail[]
+  subtotal?: number
+  servicio?: number
+  total?: number
   createdAt?: string
   updatedAt?: string
 }
@@ -75,7 +109,63 @@ export interface CreatePedidoDetalleDto {
 export interface CreatePagoPedidoDto {
   metodoPagoId: number
   monto: number
+  moneda?: 'CRC' | 'USD' | string
+  monedaId?: number
+  montoColones?: number
+  montoRecibido?: number
+  montoRecibidoColones?: number
+  vuelto?: number
+  vueltoColones?: number
+  tipoCambioId?: number
+  accountId?: number
+  aplicarServicio?: boolean
+  exonerarServicio?: boolean
   referencia?: string
+}
+
+export interface CreatePedidoAccountDto {
+  numeroCuenta?: number
+  nombre?: string
+  numero?: string
+  activo?: boolean
+  items?: PedidoAccountSplitItemDto[]
+  detailIds?: number[]
+  detalleIds?: number[]
+  detalles?: PedidoAccountSplitItemAltDto[]
+}
+
+export interface PedidoAccountSplitItemDto {
+  detailId: number
+  cantidad?: number
+}
+
+export interface PedidoAccountSplitItemAltDto {
+  detailId?: number
+  detalleId?: number
+  cantidad?: number
+  quantity?: number
+  qty?: number
+}
+
+export interface AddPedidoAccountDetailDto {
+  items?: PedidoAccountSplitItemDto[]
+  detailIds?: number[]
+  detalleIds?: number[]
+  detalles?: PedidoAccountSplitItemAltDto[]
+  detailId?: number
+  pedidoDetalleId?: number
+  productoId?: number
+  cantidad?: number
+}
+
+export interface MovePedidoAccountDetailDto {
+  cantidad?: number
+  quantity?: number
+  qty?: number
+  cuentaDestinoId?: number
+  cuenta_destino_id?: number
+  targetAccountId?: number
+  target_account_id?: number
 }
 
 export interface CreatePedidoDto {
