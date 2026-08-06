@@ -31,6 +31,7 @@ import { useAuth } from '@/hooks/useAuth'
 import FacturacionModal from '@/components/facturacion/FacturacionModal'
 import { menuService } from '@/services/menu.service'
 import { pedidosService } from '@/services/pedidos.service'
+import { reservacionesService } from '@/services/reservaciones.service'
 import { mesaSchema } from '@/schemas/mesa.schema'
 import { mesasService } from '@/services/mesas.service'
 import { pedidoSchema } from '@/schemas/pedido.schema'
@@ -151,6 +152,100 @@ function extractBackendMessage(payload: unknown): string {
   }
 
   return ''
+}
+
+const RESERVA_ESTADOS_OCUPADA = new Set(['PENDIENTE', 'CONFIRMADA', 'CONFIRMADO'])
+const RESERVA_ESTADOS_LIBRE = new Set(['ATENDIDA', 'CANCELADA'])
+
+function normalizeReservaEstado(value: unknown): string {
+  return String(value ?? '').trim().toUpperCase()
+}
+
+function normalizeReservaBoolean(value: unknown): boolean {
+  if (typeof value === 'boolean') {
+    return value
+  }
+
+  const normalized = String(value ?? '').trim().toLowerCase()
+  return normalized === 'true' || normalized === '1' || normalized === 'si' || normalized === 'yes'
+}
+
+function resolveMesaReservadaByEstado(estado: unknown): boolean | null {
+  const normalized = normalizeReservaEstado(estado)
+  if (!normalized) {
+    return null
+  }
+
+  if (RESERVA_ESTADOS_OCUPADA.has(normalized)) {
+    return true
+  }
+
+  if (RESERVA_ESTADOS_LIBRE.has(normalized)) {
+    return false
+  }
+
+  return null
+}
+
+function unwrapReservaArrayPayload(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) {
+    return payload
+  }
+
+  if (typeof payload !== 'object' || payload === null) {
+    return []
+  }
+
+  const record = payload as Record<string, unknown>
+  const keys = ['data', 'items', 'results', 'mesas', 'mesasEstado', 'estadoMesas', 'tables', 'content']
+
+  for (const key of keys) {
+    const value = record[key]
+    if (Array.isArray(value)) {
+      return value
+    }
+  }
+
+  return []
+}
+
+function extractReservadaMesaIds(payload: unknown): Set<number> {
+  const ids = new Set<number>()
+
+  for (const item of unwrapReservaArrayPayload(payload)) {
+    if (typeof item !== 'object' || item === null) {
+      continue
+    }
+
+    const record = item as Record<string, unknown>
+    const mesaRaw =
+      typeof record.mesa === 'object' && record.mesa !== null ? (record.mesa as Record<string, unknown>) : null
+
+    const mesaId = Number(
+      record.mesaId ?? record.mesa_id ?? record.idMesa ?? record.id ?? record.tableId ?? mesaRaw?.id ?? 0,
+    )
+    if (!Number.isFinite(mesaId) || mesaId <= 0) {
+      continue
+    }
+
+    const estadoValue =
+      record.reservaEstado ??
+      record.estadoReserva ??
+      record.estado ??
+      record.status
+
+    const reservadaByEstado = resolveMesaReservadaByEstado(estadoValue)
+    const reservadaByFlag =
+      normalizeReservaBoolean(
+        record.reservada ?? record.reserved ?? record.ocupada ?? record.estaReservada ?? record.disponible === false,
+      ) || Number(record.reservaId ?? record.reserva_id ?? 0) > 0
+
+    if ((reservadaByEstado ?? reservadaByFlag) === true) {
+      ids.add(mesaId)
+    }
+  }
+
+  return ids
 }
 
 function normalizeMesaRecord(item: unknown): Mesa {
@@ -487,6 +582,7 @@ export default function MesasPage() {
   const [selectedPedido, setSelectedPedido] = useState<Pedido | null>(null)
   const [currentPedidoDetails, setCurrentPedidoDetails] = useState<PedidoDetalle[]>([])
   const [openPedidosByMesa, setOpenPedidosByMesa] = useState<Record<number, Pedido>>({})
+  const [reservadasByMesa, setReservadasByMesa] = useState<Record<number, boolean>>({})
   const [pedidoLoading, setPedidoLoading] = useState(false)
   const [pedidoForm, setPedidoForm] = useState<PedidoMesaFormState>(initialPedidoForm)
   const [invoicePreviewOpen, setInvoicePreviewOpen] = useState(false)
@@ -515,10 +611,11 @@ export default function MesasPage() {
     setError(null)
 
     try {
-      const [mesasResponse, productsResponse, pedidosResponse] = await Promise.all([
+      const [mesasResponse, productsResponse, pedidosResponse, reservasMesasResponse] = await Promise.all([
         mesasService.getAll(),
         menuService.getProducts(),
         pedidosService.getAll({ tipo: 'MESA' }),
+        reservacionesService.getMesasEstado({ includeInactive: true }).catch(() => null),
       ])
       setMesas(unwrapMesasPayload(mesasResponse.data))
       setProducts(unwrapProductsPayload(productsResponse.data))
@@ -546,6 +643,12 @@ export default function MesasPage() {
         }, {})
 
       setOpenPedidosByMesa(openByMesa)
+      const fromMesasEstado = reservasMesasResponse ? extractReservadaMesaIds(reservasMesasResponse.data) : new Set<number>()
+      const reservadasMap: Record<number, boolean> = {}
+      for (const mesaId of fromMesasEstado) {
+        reservadasMap[mesaId] = true
+      }
+      setReservadasByMesa(reservadasMap)
     } catch (requestError) {
       const backendMessage =
         axios.isAxiosError(requestError) && requestError.response
@@ -1282,6 +1385,7 @@ export default function MesasPage() {
             {visibleMesas.map((mesa) => {
               const activePedido = openPedidosByMesa[mesa.id]
               const isMesaOccupied = Boolean(activePedido)
+              const isMesaReserved = Boolean(reservadasByMesa[mesa.id])
 
               return (
               <Card
@@ -1358,14 +1462,30 @@ export default function MesasPage() {
                     </Box>
                     <Chip
                       size="small"
-                      label={mesa.activa ? (isMesaOccupied ? 'Ocupada' : 'Disponible') : 'Inactiva'}
+                      label={
+                        !mesa.activa
+                          ? 'Inactiva'
+                          : isMesaReserved
+                            ? 'Reservada'
+                            : isMesaOccupied
+                              ? 'Ocupada'
+                              : 'Disponible'
+                      }
                       sx={{
                         backgroundColor: !mesa.activa
                           ? 'rgba(143,29,46,0.18)'
-                          : isMesaOccupied
+                          : isMesaReserved
+                            ? 'rgba(143,29,46,0.2)'
+                            : isMesaOccupied
                             ? 'rgba(255,152,0,0.2)'
                             : 'rgba(76,175,80,0.14)',
-                        color: !mesa.activa ? '#f4a7b1' : isMesaOccupied ? '#ffd28e' : '#9ae6a0',
+                        color: !mesa.activa
+                          ? '#f4a7b1'
+                          : isMesaReserved
+                            ? '#f7b3bd'
+                            : isMesaOccupied
+                              ? '#ffd28e'
+                              : '#9ae6a0',
                         fontWeight: 700,
                       }}
                     />

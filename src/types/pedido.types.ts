@@ -77,6 +77,9 @@ export interface MetodoPago {
 export interface Pedido {
   id: number
   codigo?: string
+  clienteId?: number | null
+  clienteNombre?: string
+  clienteTelefono?: string
   mesaId?: number | null
   mesa?: {
     id?: number
@@ -181,6 +184,7 @@ export interface MovePedidoAccountDetailDto {
 
 export interface CreatePedidoDto {
   codigo?: string
+  clienteId?: number | null
   mesaId?: number | null
   usuarioId: number
   tipo: TipoPedido
@@ -194,6 +198,7 @@ export interface UpdatePedidoDto extends Partial<CreatePedidoDto> {}
 export interface PedidoListQuery {
   estado?: string
   tipo?: string
+  clienteId?: number
   mesaId?: number
   usuarioId?: number
   fechaDesde?: string

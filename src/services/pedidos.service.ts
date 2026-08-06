@@ -439,12 +439,37 @@ async function moveAccountDetailWithFallback(
   throw lastError
 }
 
+async function reprintPedidoWithFallback(id: number) {
+  const routes = [
+    `/pedidos/${id}/reimprimir`,
+    `/pedidos/${id}/reprint`,
+    `/pedidos/${id}/imprimir`,
+    `/pedidos/${id}/print`,
+  ]
+
+  let lastError: unknown
+
+  for (const route of routes) {
+    try {
+      return await api.post<Pedido>(route)
+    } catch (error) {
+      lastError = error
+      if (!axios.isAxiosError(error) || error.response?.status !== 404) {
+        throw error
+      }
+    }
+  }
+
+  throw lastError
+}
+
 export const pedidosService = {
   getAll: (params?: PedidoListQuery) => api.get<Pedido[]>('/pedidos', { params }),
   getById: (id: number) => api.get<Pedido>(`/pedidos/${id}`),
   create: (data: CreatePedidoDto) => api.post<Pedido>('/pedidos', data),
   update: (id: number, data: UpdatePedidoDto) => api.put<Pedido>(`/pedidos/${id}`, data),
   sendToKitchen: (id: number) => api.post<Pedido>(`/pedidos/${id}/enviar-cocina`),
+  reprint: (id: number) => reprintPedidoWithFallback(id),
   bill: (id: number) => api.post<Pedido>(`/pedidos/${id}/facturar`),
   delete: (id: number) => api.delete(`/pedidos/${id}`),
   getDetails: async (id: number) => {

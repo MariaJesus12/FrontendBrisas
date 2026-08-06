@@ -2,6 +2,7 @@ import axios from 'axios'
 import { env } from '@/config/env'
 
 const PUBLIC_401_SAFE_ENDPOINTS = ['/products', '/categories', '/dish-of-month', '/announcements']
+const CLIENT_ENDPOINTS = ['/clientes', '/cliente', '/customers', '/customer']
 
 function shouldRedirectToLoginOn401(error: {
   response?: { status?: number }
@@ -34,6 +35,27 @@ function getStoredToken(): string | null {
   return rawToken.startsWith('Bearer ') ? rawToken.slice('Bearer '.length) : rawToken
 }
 
+function buildNoCacheParams(params: unknown): Record<string, unknown> {
+  if (params instanceof URLSearchParams) {
+    const next: Record<string, unknown> = {}
+    params.forEach((value, key) => {
+      next[key] = value
+    })
+    next._ts = Date.now()
+    return next
+  }
+
+  if (typeof params === 'object' && params !== null) {
+    return { ...(params as Record<string, unknown>), _ts: Date.now() }
+  }
+
+  return { _ts: Date.now() }
+}
+
+function shouldBypassCache(url: string): boolean {
+  return CLIENT_ENDPOINTS.some((endpoint) => url.includes(endpoint))
+}
+
 const api = axios.create({
   baseURL: env.apiUrl,
   timeout: env.apiTimeoutMs,
@@ -47,12 +69,43 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
+
+  const method = String(config.method ?? 'GET').toUpperCase()
+  const requestUrl = String(config.url ?? '')
+  if (method === 'GET' && shouldBypassCache(requestUrl)) {
+    config.params = buildNoCacheParams(config.params)
+    const headers = axios.AxiosHeaders.from(config.headers)
+    headers.set('Cache-Control', 'no-cache, no-store, max-age=0')
+    headers.set('Pragma', 'no-cache')
+    headers.set('Expires', '0')
+    config.headers = headers
+  }
+
   return config
 })
 
 api.interceptors.response.use(
   (response) => response,
-  (error: unknown) => {
+  async (error: unknown) => {
+    if (axios.isAxiosError(error) && error.response?.status === 304 && error.config?.method?.toUpperCase() === 'GET') {
+      const originalConfig = error.config as typeof error.config & { _retried304?: boolean }
+
+      if (!originalConfig._retried304) {
+        originalConfig._retried304 = true
+
+        return api.request({
+          ...originalConfig,
+          params: buildNoCacheParams(originalConfig.params),
+          headers: {
+            ...(originalConfig.headers ?? {}),
+            'Cache-Control': 'no-cache, no-store, max-age=0',
+            Pragma: 'no-cache',
+            Expires: '0',
+          },
+        })
+      }
+    }
+
     if (
       typeof error === 'object' &&
       error !== null &&

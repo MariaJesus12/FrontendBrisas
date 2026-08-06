@@ -66,6 +66,22 @@ body {
   margin: 0;
 }
 
+/* Keep table action buttons readable on dark surfaces across modules. */
+.MuiTableCell-root .MuiIconButton-root {
+  border: 1px solid rgba(212, 175, 55, 0.35);
+  background-color: rgba(212, 175, 55, 0.08);
+  border-radius: 8px;
+}
+
+.MuiTableCell-root .MuiIconButton-root:hover {
+  background-color: rgba(212, 175, 55, 0.16);
+}
+
+.MuiTableCell-root .MuiIconButton-root.Mui-disabled {
+  border-color: rgba(243, 233, 210, 0.2);
+  background-color: rgba(243, 233, 210, 0.04);
+}
+
 h1,
 h2 {
   font-family: var(--heading);

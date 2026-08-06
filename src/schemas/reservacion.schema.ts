@@ -1,13 +1,14 @@
 import { z } from 'zod'
 
 export const reservacionSchema = z.object({
-  nombreCliente: z.string().min(2, 'El nombre es requerido'),
-  email: z.string().email('Email inválido'),
-  telefono: z.string().min(7, 'Teléfono inválido'),
+  mesaId: z.coerce.number().int().min(1, 'Selecciona una mesa.'),
+  clienteNombre: z.string().trim().min(2, 'El nombre del cliente es requerido'),
+  clienteTelefono: z.string().trim().min(7, 'Teléfono inválido'),
   fecha: z.string().min(1, 'La fecha es requerida'),
   hora: z.string().min(1, 'La hora es requerida'),
-  numeroPersonas: z.coerce.number().min(1, 'Mínimo 1 persona').max(20, 'Máximo 20 personas'),
-  notas: z.string().optional(),
+  cantidadPersonas: z.coerce.number().min(1, 'Mínimo 1 persona').max(30, 'Máximo 30 personas'),
+  observaciones: z.string().optional(),
+  estado: z.string().trim().optional(),
 })
 
 export type ReservacionFormData = z.infer<typeof reservacionSchema>

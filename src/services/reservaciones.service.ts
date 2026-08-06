@@ -1,13 +1,25 @@
 import api from './api'
-import type { Reservacion, CreateReservacionDto } from '@/types/reservacion.types'
+import type {
+  CreateReservacionDto,
+  Reservacion,
+  ReservacionListQuery,
+  ReservasMesasEstadoQuery,
+  ReservaMesaEstado,
+  UpdateReservacionDto,
+} from '@/types/reservacion.types'
 
 export const reservacionesService = {
-  getAll: () => api.get<Reservacion[]>('/reservaciones'),
-  getById: (id: number) => api.get<Reservacion>(`/reservaciones/${id}`),
-  create: (data: CreateReservacionDto) => api.post<Reservacion>('/reservaciones', data),
-  update: (id: number, data: Partial<CreateReservacionDto>) =>
-    api.put<Reservacion>(`/reservaciones/${id}`, data),
+  getMesasEstado: (query?: ReservasMesasEstadoQuery) =>
+    api.get<ReservaMesaEstado[]>('/reservas/mesas/estado', {
+      params: {
+        at: query?.at,
+        includeInactive: typeof query?.includeInactive === 'boolean' ? query.includeInactive : undefined,
+      },
+    }),
+  getAll: (query?: ReservacionListQuery) => api.get<Reservacion[]>('/reservas', { params: query }),
+  getById: (id: number) => api.get<Reservacion>(`/reservas/${id}`),
+  create: (data: CreateReservacionDto) => api.post<Reservacion>('/reservas', data),
+  update: (id: number, data: UpdateReservacionDto) => api.put<Reservacion>(`/reservas/${id}`, data),
   updateEstado: (id: number, estado: string) =>
-    api.patch<Reservacion>(`/reservaciones/${id}/estado`, { estado }),
-  delete: (id: number) => api.delete(`/reservaciones/${id}`),
+    api.patch<Reservacion>(`/reservas/${id}/estado`, { estado }),
 }

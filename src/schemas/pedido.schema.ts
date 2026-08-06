@@ -10,6 +10,7 @@ export const pedidoDetalleSchema = z.object({
 export const pedidoSchema = z
   .object({
     codigo: z.string().trim().optional(),
+    clienteId: z.coerce.number().int().positive('Cliente requerido').optional(),
     mesaId: z.coerce.number().int().positive('Mesa requerida').optional(),
     usuarioId: z.coerce.number().int().positive('Usuario requerido'),
     tipo: z.enum(['MESA', 'LLEVAR']),
@@ -23,6 +24,14 @@ export const pedidoSchema = z
         code: 'custom',
         path: ['mesaId'],
         message: 'Selecciona una mesa para pedidos de mesa',
+      })
+    }
+
+    if (value.tipo === 'LLEVAR' && !value.clienteId) {
+      context.addIssue({
+        code: 'custom',
+        path: ['clienteId'],
+        message: 'Selecciona o crea un cliente para pedidos para llevar',
       })
     }
   })

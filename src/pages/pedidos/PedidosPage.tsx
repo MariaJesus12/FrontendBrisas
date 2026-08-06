@@ -17,29 +17,36 @@ import {
   MenuItem,
   Paper,
   Stack,
+  TableContainer,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import VisibilityIcon from '@mui/icons-material/Visibility'
+import PrintIcon from '@mui/icons-material/Print'
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney'
 import ReceiptIcon from '@mui/icons-material/Receipt'
 import { toast } from 'react-toastify'
 import { useLocation } from 'react-router-dom'
+import FacturacionModal from '@/components/facturacion/FacturacionModal'
 import { pedidoSchema } from '@/schemas/pedido.schema'
+import { clientesService } from '@/services/clientes.service'
 import { mesasService } from '@/services/mesas.service'
 import { menuService } from '@/services/menu.service'
 import { pedidosService } from '@/services/pedidos.service'
+import { reservacionesService } from '@/services/reservaciones.service'
 import { usuariosService } from '@/services/usuarios.service'
 import { useAuth } from '@/hooks/useAuth'
 import type { Mesa } from '@/types/mesa.types'
+import type { Cliente } from '@/types/cliente.types'
 import type { Product } from '@/types/menu.types'
 import type { CreatedUser } from '@/types/usuario.types'
 import type {
@@ -71,6 +78,7 @@ const ORDER_TYPES: TipoPedido[] = ['MESA', 'LLEVAR']
 interface PedidoFilterState {
   estado: string
   tipo: string
+  clienteId: string
   mesaId: string
   usuarioId: string
   fechaDesde: string
@@ -88,6 +96,9 @@ interface PedidoLineFormState {
 
 interface PedidoFormState {
   codigo: string
+  clienteId: string
+  clienteNombre: string
+  clienteTelefono: string
   mesaId: string
   usuarioId: string
   tipo: TipoPedido
@@ -105,6 +116,7 @@ interface PaymentFormState {
 const initialFilterState: PedidoFilterState = {
   estado: '',
   tipo: '',
+  clienteId: '',
   mesaId: '',
   usuarioId: '',
   fechaDesde: '',
@@ -113,6 +125,9 @@ const initialFilterState: PedidoFilterState = {
 
 const initialPedidoForm: PedidoFormState = {
   codigo: '',
+  clienteId: '',
+  clienteNombre: '',
+  clienteTelefono: '',
   mesaId: '',
   usuarioId: '',
   tipo: 'MESA',
@@ -130,6 +145,210 @@ const initialPaymentForm: PaymentFormState = {
 function toPositiveNumber(value: unknown): number | null {
   const parsed = Number(value)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
+function normalizeClientName(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+}
+
+function normalizePhone(value: string): string {
+  return value.replace(/\D/g, '')
+}
+
+function normalizePedidoRecord(item: unknown): Pedido | null {
+  if (typeof item !== 'object' || item === null) {
+    return null
+  }
+
+  const record = item as Record<string, unknown>
+  const id = toPositiveNumber(record.id ?? record.pedidoId ?? record.pedido_id)
+  if (!id) {
+    return null
+  }
+
+  const tipoRaw = record.tipo ?? record.type
+  const estadoRaw = record.estado ?? record.status
+
+  return {
+    id,
+    codigo: typeof record.codigo === 'string' ? record.codigo : typeof record.code === 'string' ? record.code : undefined,
+    clienteId: toPositiveNumber(record.clienteId ?? record.cliente_id) ?? undefined,
+    clienteNombre:
+      typeof record.clienteNombre === 'string'
+        ? record.clienteNombre
+        : typeof record.cliente_nombre === 'string'
+          ? record.cliente_nombre
+          : typeof record.nombreCliente === 'string'
+            ? record.nombreCliente
+            : undefined,
+    clienteTelefono:
+      typeof record.clienteTelefono === 'string'
+        ? record.clienteTelefono
+        : typeof record.cliente_telefono === 'string'
+          ? record.cliente_telefono
+          : typeof record.telefonoCliente === 'string'
+            ? record.telefonoCliente
+            : undefined,
+    mesaId: toPositiveNumber(record.mesaId ?? record.mesa_id) ?? undefined,
+    mesa:
+      typeof record.mesa === 'object' && record.mesa !== null
+        ? (record.mesa as Pedido['mesa'])
+        : undefined,
+    usuarioId: toPositiveNumber(record.usuarioId ?? record.usuario_id) ?? undefined,
+    usuario:
+      typeof record.usuario === 'object' && record.usuario !== null
+        ? (record.usuario as Pedido['usuario'])
+        : undefined,
+    tipo: typeof tipoRaw === 'string' ? tipoRaw : 'MESA',
+    estado: typeof estadoRaw === 'string' ? estadoRaw : 'BORRADOR',
+    impuesto: Number(record.impuesto ?? 0) || undefined,
+    total: Number(record.total ?? 0) || undefined,
+    totalPagado: Number(record.totalPagado ?? record.total_pagado ?? 0) || undefined,
+    saldoPendiente: Number(record.saldoPendiente ?? record.saldo_pendiente ?? 0) || undefined,
+    createdAt: typeof record.createdAt === 'string' ? record.createdAt : undefined,
+    updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : undefined,
+  }
+}
+
+function normalizePedidoDetailRecord(item: unknown): PedidoDetalle | null {
+  if (typeof item !== 'object' || item === null) {
+    return null
+  }
+
+  const record = item as Record<string, unknown>
+  const id = toPositiveNumber(record.id ?? record.detalleId ?? record.detalle_id)
+  const productoId = toPositiveNumber(record.productoId ?? record.product_id ?? record.producto_id)
+  const cantidad = Number(record.cantidad ?? record.qty ?? record.quantity ?? 0)
+  const precioUnitario = Number(record.precioUnitario ?? record.precio_unitario ?? record.price ?? 0)
+  const productoRecord =
+    typeof record.producto === 'object' && record.producto !== null
+      ? (record.producto as Record<string, unknown>)
+      : null
+
+  const productoNombre =
+    typeof record.productoNombre === 'string'
+      ? record.productoNombre
+      : typeof record.nombreProducto === 'string'
+        ? record.nombreProducto
+        : typeof record.product_name === 'string'
+          ? record.product_name
+          : typeof record.productName === 'string'
+            ? record.productName
+            : typeof productoRecord?.nombre === 'string'
+              ? productoRecord.nombre
+              : undefined
+
+  if (!id || !productoId) {
+    return null
+  }
+
+  return {
+    id,
+    productoId,
+    productoNombre,
+    producto: productoRecord
+      ? ({ ...(productoRecord as PedidoDetalle['producto']), nombre: productoNombre ?? String(productoRecord.nombre ?? '') } as PedidoDetalle['producto'])
+      : productoNombre
+        ? { nombre: productoNombre }
+        : undefined,
+    cantidad: Number.isFinite(cantidad) ? cantidad : 0,
+    precioUnitario: Number.isFinite(precioUnitario) ? precioUnitario : 0,
+    observacion: typeof record.observacion === 'string' ? record.observacion : undefined,
+    subtotal:
+      Number.isFinite(Number(record.subtotal)) && Number(record.subtotal) > 0
+        ? Number(record.subtotal)
+        : Number.isFinite(cantidad) && Number.isFinite(precioUnitario)
+          ? cantidad * precioUnitario
+          : 0,
+  }
+}
+
+function normalizePagoRecord(item: unknown): PagoPedido | null {
+  if (typeof item !== 'object' || item === null) {
+    return null
+  }
+
+  const record = item as Record<string, unknown>
+  const id = toPositiveNumber(record.id)
+  const metodoPagoId = toPositiveNumber(record.metodoPagoId ?? record.metodo_pago_id)
+  const monto = Number(record.monto ?? 0)
+
+  if (!id || !metodoPagoId) {
+    return null
+  }
+
+  return {
+    id,
+    metodoPagoId,
+    metodoPago:
+      typeof record.metodoPago === 'object' && record.metodoPago !== null
+        ? (record.metodoPago as PagoPedido['metodoPago'])
+        : undefined,
+    monto: Number.isFinite(monto) ? monto : 0,
+    referencia: typeof record.referencia === 'string' ? record.referencia : undefined,
+  }
+}
+
+function unwrapLooseArray(payload: unknown, keys: string[]): unknown[] {
+  if (Array.isArray(payload)) {
+    return payload
+  }
+
+  if (typeof payload !== 'object' || payload === null) {
+    return []
+  }
+
+  const record = payload as Record<string, unknown>
+  for (const key of keys) {
+    const value = record[key]
+    if (Array.isArray(value)) {
+      return value
+    }
+
+    if (typeof value === 'object' && value !== null) {
+      const nested = value as Record<string, unknown>
+      for (const nestedKey of keys) {
+        const nestedValue = nested[nestedKey]
+        if (Array.isArray(nestedValue)) {
+          return nestedValue
+        }
+      }
+    }
+  }
+
+  return []
+}
+
+function unwrapPedidoDetailsPayload(payload: unknown): PedidoDetalle[] {
+  const details = unwrapLooseArray(payload, [
+    'data',
+    'items',
+    'results',
+    'details',
+    'detalles',
+    'pedidoDetalles',
+    'pedido_detalles',
+    'lineas',
+    'rows',
+    'list',
+  ])
+
+  return details
+    .map((item) => normalizePedidoDetailRecord(item))
+    .filter((item): item is PedidoDetalle => item !== null)
+}
+
+function unwrapPagosPayload(payload: unknown): PagoPedido[] {
+  const payments = unwrapLooseArray(payload, ['data', 'items', 'results', 'payments', 'pagos', 'rows', 'list'])
+
+  return payments
+    .map((item) => normalizePagoRecord(item))
+    .filter((item): item is PagoPedido => item !== null)
 }
 
 function formatCurrency(value: number | null | undefined): string {
@@ -195,17 +414,171 @@ function unwrapArrayPayload<T>(payload: unknown): T[] {
 
   if (typeof payload === 'object' && payload !== null) {
     const record = payload as Record<string, unknown>
-    const keys = ['data', 'items', 'results', 'pedidos', 'details', 'payments', 'methods', 'metodos']
+    const keys = [
+      'data',
+      'items',
+      'results',
+      'pedidos',
+      'details',
+      'payments',
+      'methods',
+      'metodos',
+      'clientes',
+      'customers',
+      'content',
+      'rows',
+      'list',
+    ]
 
     for (const key of keys) {
       const value = record[key]
       if (Array.isArray(value)) {
         return value as T[]
       }
+
+      if (typeof value === 'object' && value !== null) {
+        const nested = value as Record<string, unknown>
+        for (const nestedKey of keys) {
+          const nestedValue = nested[nestedKey]
+          if (Array.isArray(nestedValue)) {
+            return nestedValue as T[]
+          }
+        }
+      }
     }
   }
 
   return []
+}
+
+function normalizeClienteRecord(item: unknown): Cliente | null {
+  if (typeof item !== 'object' || item === null) {
+    return null
+  }
+
+  const record = item as Record<string, unknown>
+  const id = toPositiveNumber(record.id ?? record.clienteId ?? record.cliente_id)
+  if (!id) {
+    return null
+  }
+
+  const nombreRaw = record.nombre ?? record.name
+  const telefonoRaw = record.telefono ?? record.phone
+
+  return {
+    id,
+    nombre: typeof nombreRaw === 'string' ? nombreRaw : String(nombreRaw ?? `Cliente #${id}`),
+    telefono: typeof telefonoRaw === 'string' ? telefonoRaw : String(telefonoRaw ?? ''),
+    activo:
+      typeof record.activo === 'boolean'
+        ? record.activo
+        : typeof record.active === 'boolean'
+          ? record.active
+          : undefined,
+  }
+}
+
+function unwrapClientesPayload(payload: unknown): Cliente[] {
+  return unwrapArrayPayload(payload)
+    .map((item) => normalizeClienteRecord(item))
+    .filter((item): item is Cliente => item !== null)
+}
+
+const RESERVA_ESTADOS_OCUPADA = new Set(['PENDIENTE', 'CONFIRMADA', 'CONFIRMADO'])
+const RESERVA_ESTADOS_LIBRE = new Set(['ATENDIDA', 'CANCELADA'])
+
+function normalizeReservaEstado(value: unknown): string {
+  return String(value ?? '').trim().toUpperCase()
+}
+
+function normalizeReservaBoolean(value: unknown): boolean {
+  if (typeof value === 'boolean') {
+    return value
+  }
+
+  const normalized = String(value ?? '').trim().toLowerCase()
+  return normalized === 'true' || normalized === '1' || normalized === 'si' || normalized === 'yes'
+}
+
+function resolveMesaReservadaByEstado(estado: unknown): boolean | null {
+  const normalized = normalizeReservaEstado(estado)
+  if (!normalized) {
+    return null
+  }
+
+  if (RESERVA_ESTADOS_OCUPADA.has(normalized)) {
+    return true
+  }
+
+  if (RESERVA_ESTADOS_LIBRE.has(normalized)) {
+    return false
+  }
+
+  return null
+}
+
+function unwrapReservaArrayPayload(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) {
+    return payload
+  }
+
+  if (typeof payload !== 'object' || payload === null) {
+    return []
+  }
+
+  const record = payload as Record<string, unknown>
+  const keys = ['data', 'items', 'results', 'mesas', 'mesasEstado', 'estadoMesas', 'tables', 'content']
+
+  for (const key of keys) {
+    const value = record[key]
+    if (Array.isArray(value)) {
+      return value
+    }
+  }
+
+  return []
+}
+
+function extractReservadaMesaMap(payload: unknown): Record<number, boolean> {
+  const result: Record<number, boolean> = {}
+
+  for (const item of unwrapReservaArrayPayload(payload)) {
+    if (typeof item !== 'object' || item === null) {
+      continue
+    }
+
+    const record = item as Record<string, unknown>
+    const mesaRaw =
+      typeof record.mesa === 'object' && record.mesa !== null ? (record.mesa as Record<string, unknown>) : null
+
+    const mesaId = Number(
+      record.mesaId ?? record.mesa_id ?? record.idMesa ?? record.id ?? record.tableId ?? mesaRaw?.id ?? 0,
+    )
+    if (!Number.isFinite(mesaId) || mesaId <= 0) {
+      continue
+    }
+
+    const estadoValue =
+      record.reservaEstado ??
+      record.estadoReserva ??
+      record.estado ??
+      record.status
+
+    const reservadaByEstado = resolveMesaReservadaByEstado(estadoValue)
+    const reservadaByFlag =
+      normalizeReservaBoolean(
+        record.reservada ?? record.reserved ?? record.ocupada ?? record.estaReservada ?? record.disponible === false,
+      ) || Number(record.reservaId ?? record.reserva_id ?? 0) > 0
+
+    result[mesaId] = reservadaByEstado ?? reservadaByFlag
+  }
+
+  return result
+}
+
+function resolvePedidoMesaId(pedido: Pedido): number | null {
+  const mesaId = Number(pedido.mesaId ?? pedido.mesa?.id ?? 0)
+  return Number.isFinite(mesaId) && mesaId > 0 ? mesaId : null
 }
 
 function normalizeProductRecord(item: unknown): Product | null {
@@ -344,6 +717,40 @@ function getPedidoMesaLabel(pedido: Pedido): string {
   return 'Sin mesa'
 }
 
+function getPedidoMesaListLabel(pedido: Pedido): string {
+  return String(pedido.tipo).toUpperCase() === 'LLEVAR' ? 'Llevar' : 'Mesa'
+}
+
+function getPedidoClienteNombre(pedido: Pedido): string {
+  const rawRecord = pedido as unknown as Record<string, unknown>
+  const nombre =
+    rawRecord.clienteNombre ??
+    rawRecord.cliente_nombre ??
+    rawRecord.nombreCliente ??
+    rawRecord.cliente
+
+  if (typeof nombre === 'string' && nombre.trim()) {
+    return nombre
+  }
+
+  return 'Sin cliente'
+}
+
+function getPedidoClienteTelefono(pedido: Pedido): string {
+  const rawRecord = pedido as unknown as Record<string, unknown>
+  const telefono =
+    rawRecord.clienteTelefono ??
+    rawRecord.cliente_telefono ??
+    rawRecord.telefonoCliente ??
+    rawRecord.telefono
+
+  if (typeof telefono === 'string' && telefono.trim()) {
+    return telefono
+  }
+
+  return 'Sin teléfono'
+}
+
 function getPedidoUserLabel(pedido: Pedido, users: CreatedUser[]): string {
   if (pedido.usuario?.nombre) {
     return pedido.usuario.nombre
@@ -373,9 +780,41 @@ function getStatusTone(status: string): 'default' | 'warning' | 'success' | 'err
   return 'default'
 }
 
+function getStatusChipSx(status: string) {
+  const normalized = status.trim().toUpperCase()
+
+  if (normalized === 'BORRADOR') {
+    return {
+      fontWeight: 700,
+      color: '#f7d98a',
+      bgcolor: 'rgba(212,175,55,0.16)',
+      border: '1px solid rgba(212,175,55,0.32)',
+    }
+  }
+
+  return { fontWeight: 700 }
+}
+
 function canDeletePedido(estado: string): boolean {
   const normalized = estado.trim().toUpperCase()
   return normalized === 'BORRADOR' || normalized === 'CANCELADO'
+}
+
+function getActionButtonSx(color: string) {
+  return {
+    color,
+    border: '1px solid rgba(212,175,55,0.4)',
+    backgroundColor: 'rgba(212,175,55,0.08)',
+    borderRadius: 2,
+    '&:hover': {
+      backgroundColor: 'rgba(212,175,55,0.16)',
+    },
+    '&.Mui-disabled': {
+      color: 'rgba(243,233,210,0.55)',
+      borderColor: 'rgba(243,233,210,0.25)',
+      backgroundColor: 'rgba(243,233,210,0.07)',
+    },
+  }
 }
 
 interface PedidosPageProps {
@@ -394,6 +833,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
   const [pedidos, setPedidos] = useState<Pedido[]>([])
   const [mesas, setMesas] = useState<Mesa[]>([])
   const [products, setProducts] = useState<Product[]>([])
+  const [clientes, setClientes] = useState<Cliente[]>([])
   const [users, setUsers] = useState<CreatedUser[]>(
     user
       ? [
@@ -407,6 +847,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
       : [],
   )
   const [paymentMethods, setPaymentMethods] = useState<MetodoPago[]>(FALLBACK_PAYMENT_METHODS)
+  const [reservadaByMesa, setReservadaByMesa] = useState<Record<number, boolean>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [loadingDetails, setLoadingDetails] = useState(false)
@@ -430,6 +871,9 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
   })
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false)
   const [editingPaymentId, setEditingPaymentId] = useState<number | null>(null)
+  const [invoicePreviewOpen, setInvoicePreviewOpen] = useState(false)
+  const [invoicePreviewPedido, setInvoicePreviewPedido] = useState<Pedido | null>(null)
+  const [invoicePreviewDetails, setInvoicePreviewDetails] = useState<PedidoDetalle[]>([])
 
   const mesaSelection = useMemo(() => {
     const state = location.state as { mesaId?: number; mesaNumero?: number } | null
@@ -444,12 +888,16 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
     setFilterForm((current) => ({
       ...current,
       tipo: 'LLEVAR',
+      clienteId: '',
       mesaId: '',
     }))
 
     setPedidoForm((current) => ({
       ...current,
       tipo: 'LLEVAR',
+      clienteId: '',
+      clienteNombre: '',
+      clienteTelefono: '',
       mesaId: '',
     }))
   }, [isTakeoutMode])
@@ -494,6 +942,9 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
         mesasService.getAll(),
         menuService.getProducts(),
         pedidosService.getPaymentMethods(),
+        reservacionesService
+          .getMesasEstado({ includeInactive: true })
+          .catch(() => ({ data: [] as unknown[] })),
       ]
 
       if (currentRole === 'ADMIN') {
@@ -504,10 +955,13 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
       const [pedidosResponse, mesasResponse, productsResponse] = responses
       const usersResponse = currentRole === 'ADMIN' ? responses[3] : null
       const paymentMethodsResponse = currentRole === 'ADMIN' ? responses[4] : responses[3]
+      const reservasMesasResponse = currentRole === 'ADMIN' ? responses[5] : responses[4]
 
       setPedidos(unwrapArrayPayload<Pedido>(pedidosResponse.data))
       setMesas(unwrapArrayPayload<Mesa>(mesasResponse.data))
       setProducts(unwrapProductsPayload(productsResponse.data))
+      const clientesResponse = await clientesService.getAll({ active: true }).catch(() => ({ data: [] as unknown[] }))
+      setClientes(unwrapClientesPayload(clientesResponse.data))
       if (usersResponse) {
         setUsers(unwrapArrayPayload<CreatedUser>(usersResponse.data))
       } else if (user) {
@@ -523,6 +977,8 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
 
       const methods = unwrapArrayPayload<MetodoPago>(paymentMethodsResponse.data)
       setPaymentMethods(methods.length > 0 ? methods : FALLBACK_PAYMENT_METHODS)
+      const fromMesasEstado = extractReservadaMesaMap((reservasMesasResponse as { data: unknown }).data)
+      setReservadaByMesa(fromMesasEstado)
     } catch (requestError) {
       const backendMessage =
         axios.isAxiosError(requestError) && requestError.response
@@ -545,6 +1001,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
       const query: PedidoListQuery = {}
 
       if (activeFilters.estado) query.estado = activeFilters.estado
+      if (activeFilters.clienteId) query.clienteId = Number(activeFilters.clienteId)
       if (isTakeoutMode) {
         query.tipo = 'LLEVAR'
       } else {
@@ -590,6 +1047,220 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
     })
   }, [pedidos])
 
+  function linkClientToPedidoForm(cliente: Cliente) {
+    setPedidoForm((current) => ({
+      ...current,
+      clienteId: String(cliente.id),
+      clienteNombre: cliente.nombre,
+      clienteTelefono: cliente.telefono,
+    }))
+  }
+
+  function tryResolveLocalClientByName(rawName: string): Cliente | null {
+    const normalized = normalizeClientName(rawName)
+    if (!normalized) {
+      return null
+    }
+
+    return (
+      clientes.find(
+        (cliente) => cliente.activo !== false && normalizeClientName(cliente.nombre) === normalized,
+      ) ?? null
+    )
+  }
+
+  function tryResolveLocalClient(nombre: string, telefono: string): Cliente | null {
+    const normalizedName = normalizeClientName(nombre)
+    const normalizedPhone = normalizePhone(telefono)
+
+    return (
+      clientes.find((cliente) => {
+        if (cliente.activo === false) {
+          return false
+        }
+
+        const sameName = normalizedName ? normalizeClientName(cliente.nombre) === normalizedName : false
+        const samePhone = normalizedPhone ? normalizePhone(cliente.telefono) === normalizedPhone : false
+        return samePhone || sameName
+      }) ?? null
+    )
+  }
+
+  async function searchClientByName(name: string): Promise<Cliente | null> {
+    const normalized = name.trim()
+    const normalizedName = normalizeClientName(name)
+    if (!normalized) {
+      return null
+    }
+
+    try {
+      const response = await clientesService.getAll({ active: true, q: normalized })
+      const matches = unwrapClientesPayload(response.data)
+      if (matches.length === 0) {
+        return null
+      }
+
+      setClientes((current) => {
+        const merged = new Map<number, Cliente>(current.map((item) => [item.id, item]))
+        matches.forEach((item) => merged.set(item.id, item))
+        return Array.from(merged.values())
+      })
+
+      return (
+        matches.find((item) => normalizeClientName(item.nombre) === normalizedName) ??
+        matches.find((item) => normalizeClientName(item.nombre).includes(normalizedName)) ??
+        matches[0] ??
+        null
+      )
+    } catch {
+      return null
+    }
+  }
+
+  async function searchClientByPhone(telefono: string): Promise<Cliente | null> {
+    const normalized = telefono.trim()
+    const normalizedPhone = normalizePhone(telefono)
+    if (!normalized) {
+      return null
+    }
+
+    try {
+      const response = await clientesService.getAll({ active: true, telefono: normalized })
+      const matches = unwrapClientesPayload(response.data)
+      if (matches.length === 0) {
+        return null
+      }
+
+      setClientes((current) => {
+        const merged = new Map<number, Cliente>(current.map((item) => [item.id, item]))
+        matches.forEach((item) => merged.set(item.id, item))
+        return Array.from(merged.values())
+      })
+
+      return (
+        matches.find((item) => normalizePhone(item.telefono) === normalizedPhone) ??
+        matches[0] ??
+        null
+      )
+    } catch {
+      return null
+    }
+  }
+
+  async function searchClientInsensitive(nombre: string, telefono: string): Promise<Cliente | null> {
+    const normalizedName = normalizeClientName(nombre)
+    const normalizedPhone = normalizePhone(telefono)
+
+    if (!normalizedName && !normalizedPhone) {
+      return null
+    }
+
+    try {
+      const response = await clientesService.getAll({ active: true })
+      const matches = unwrapClientesPayload(response.data)
+      if (matches.length === 0) {
+        return null
+      }
+
+      setClientes((current) => {
+        const merged = new Map<number, Cliente>(current.map((item) => [item.id, item]))
+        matches.forEach((item) => merged.set(item.id, item))
+        return Array.from(merged.values())
+      })
+
+      const byPhone = normalizedPhone
+        ? matches.find((item) => normalizePhone(item.telefono) === normalizedPhone) ?? null
+        : null
+
+      if (byPhone) {
+        return byPhone
+      }
+
+      return normalizedName
+        ? matches.find((item) => normalizeClientName(item.nombre) === normalizedName) ?? null
+        : null
+    } catch {
+      return null
+    }
+  }
+
+  async function findClientAfterCreate(nombre: string, telefono: string): Promise<Cliente | null> {
+    const byPhone = await searchClientByPhone(telefono)
+    if (byPhone) {
+      return byPhone
+    }
+
+    const byName = await searchClientByName(nombre)
+    if (byName) {
+      return byName
+    }
+
+    return null
+  }
+
+  async function resolveClienteIdForPedido(input: {
+    clienteIdRaw: string
+    clienteNombre: string
+    clienteTelefono: string
+  }): Promise<number> {
+    const directClienteId = toPositiveNumber(input.clienteIdRaw)
+    if (directClienteId) {
+      return directClienteId
+    }
+
+    const nombre = input.clienteNombre.trim()
+    const telefono = input.clienteTelefono.trim()
+
+    const localMatch = tryResolveLocalClient(nombre, telefono)
+    if (localMatch) {
+      if (!input.clienteTelefono.trim()) {
+        setPedidoForm((current) => ({ ...current, clienteTelefono: localMatch.telefono }))
+      }
+      return localMatch.id
+    }
+
+    const remoteMatch = await searchClientByName(nombre)
+    if (remoteMatch) {
+      if (!input.clienteTelefono.trim()) {
+        setPedidoForm((current) => ({ ...current, clienteTelefono: remoteMatch.telefono }))
+      }
+      return remoteMatch.id
+    }
+
+    const remotePhoneMatch = await searchClientByPhone(telefono)
+    if (remotePhoneMatch) {
+      if (!input.clienteTelefono.trim()) {
+        setPedidoForm((current) => ({ ...current, clienteTelefono: remotePhoneMatch.telefono }))
+      }
+      return remotePhoneMatch.id
+    }
+
+    const insensitiveMatch = await searchClientInsensitive(nombre, telefono)
+    if (insensitiveMatch) {
+      linkClientToPedidoForm(insensitiveMatch)
+      return insensitiveMatch.id
+    }
+
+    const createdResponse = await clientesService.create({ nombre, telefono })
+    const created = normalizeClienteRecord(createdResponse.data)
+    if (!created) {
+      const recoveredClient = await findClientAfterCreate(nombre, telefono)
+      if (recoveredClient) {
+        linkClientToPedidoForm(recoveredClient)
+        return recoveredClient.id
+      }
+
+      throw new Error('El cliente se creo, pero no se pudo recuperar su id para el pedido.')
+    }
+
+    setClientes((current) => {
+      const exists = current.some((item) => item.id === created.id)
+      return exists ? current : [created, ...current]
+    })
+    linkClientToPedidoForm(created)
+    return created.id
+  }
+
   function openCreateDialog() {
     setPedidoDialogMode('create')
     setSelectedPedido(null)
@@ -597,6 +1268,9 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
       ...initialPedidoForm,
       usuarioId: current.usuarioId || (user ? String(user.id) : ''),
       tipo: isTakeoutMode ? 'LLEVAR' : initialPedidoForm.tipo,
+      clienteId: '',
+      clienteNombre: '',
+      clienteTelefono: '',
       mesaId: isTakeoutMode ? '' : initialPedidoForm.mesaId,
     }))
   }
@@ -606,6 +1280,9 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
     setSelectedPedido(pedido)
     setPedidoForm({
       codigo: pedido.codigo ?? '',
+      clienteId: pedido.clienteId ? String(pedido.clienteId) : '',
+      clienteNombre: getPedidoClienteNombre(pedido),
+      clienteTelefono: getPedidoClienteTelefono(pedido),
       mesaId: pedido.mesaId ? String(pedido.mesaId) : '',
       usuarioId: pedido.usuarioId ? String(pedido.usuarioId) : '',
       tipo: isTakeoutMode ? 'LLEVAR' : String(pedido.tipo).toUpperCase() === 'LLEVAR' ? 'LLEVAR' : 'MESA',
@@ -674,8 +1351,40 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
   }
 
   async function handleSavePedido() {
+    let resolvedClienteId: number | undefined
+
+    if (pedidoForm.tipo === 'LLEVAR') {
+      if (!pedidoForm.clienteNombre.trim()) {
+        toast.error('Ingresa el nombre del cliente para el pedido para llevar.')
+        return
+      }
+
+      if (!pedidoForm.clienteTelefono.trim()) {
+        toast.error('Ingresa el teléfono del cliente para el pedido para llevar.')
+        return
+      }
+
+      try {
+        resolvedClienteId = await resolveClienteIdForPedido({
+          clienteIdRaw: pedidoForm.clienteId,
+          clienteNombre: pedidoForm.clienteNombre,
+          clienteTelefono: pedidoForm.clienteTelefono,
+        })
+      } catch (clientError) {
+        const message =
+          clientError instanceof Error && clientError.message
+            ? clientError.message
+            : 'No fue posible resolver el cliente para el pedido.'
+        toast.error(message)
+        return
+      }
+    } else {
+      resolvedClienteId = toPositiveNumber(pedidoForm.clienteId) ?? undefined
+    }
+
     const validation = pedidoSchema.safeParse({
       codigo: isTakeoutMode ? undefined : pedidoForm.codigo.trim() || undefined,
+      clienteId: resolvedClienteId,
       mesaId: pedidoForm.tipo === 'MESA' ? pedidoForm.mesaId : undefined,
       usuarioId: isTakeoutMode ? String(user?.id ?? pedidoForm.usuarioId) : pedidoForm.usuarioId,
       tipo: pedidoForm.tipo,
@@ -697,6 +1406,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
 
     const payload: CreatePedidoDto = {
       codigo: validation.data.codigo,
+      clienteId: validation.data.clienteId,
       mesaId: validation.data.mesaId,
       usuarioId: validation.data.usuarioId,
       tipo: validation.data.tipo,
@@ -741,9 +1451,22 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
         pedidosService.getPayments(pedido.id),
       ])
 
-      setSelectedPedido(pedidoResponse.data)
-      setCurrentDetails(unwrapArrayPayload<PedidoDetalle>(detailsResponse.data))
-      setCurrentPayments(unwrapArrayPayload<PagoPedido>(paymentsResponse.data))
+      const normalizedPedidoById =
+        normalizePedidoRecord(pedidoResponse.data) ?? normalizePedidoRecord(pedido) ?? pedido
+      setSelectedPedido(normalizedPedidoById)
+
+      const detailsFromEndpoint = unwrapPedidoDetailsPayload(detailsResponse.data)
+      const detailsFromPedidoById = unwrapPedidoDetailsPayload(pedidoResponse.data)
+      const detailsFromRow = unwrapPedidoDetailsPayload((pedido as unknown as Record<string, unknown>).detalles)
+      const mergedDetails =
+        detailsFromEndpoint.length > 0
+          ? detailsFromEndpoint
+          : detailsFromPedidoById.length > 0
+            ? detailsFromPedidoById
+            : detailsFromRow
+
+      setCurrentDetails(mergedDetails)
+      setCurrentPayments(unwrapPagosPayload(paymentsResponse.data))
     } catch (requestError) {
       const backendMessage =
         axios.isAxiosError(requestError) && requestError.response
@@ -946,6 +1669,149 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
     }
   }
 
+  async function handleReprintPedido(pedido: Pedido) {
+    const pedidoId = toPositiveNumber(pedido.id)
+    if (!pedidoId) {
+      toast.error('No se encontro un id de pedido valido para reimprimir.')
+      return
+    }
+
+    setSaving(true)
+    try {
+      const [pedidoResponse, detailsResponse] = await Promise.all([
+        pedidosService.getById(pedidoId),
+        pedidosService.getDetails(pedidoId),
+      ])
+
+      const printablePedido = normalizePedidoRecord(pedidoResponse.data) ?? pedido
+      const printableDetails = unwrapPedidoDetailsPayload(detailsResponse.data)
+      const now = new Date()
+
+      const rowsHtml =
+        printableDetails.length > 0
+          ? printableDetails
+              .map((detail) => {
+                const productLabel =
+                  detail.producto?.nombre ??
+                  detail.productoNombre ??
+                  products.find((product) => product.id === detail.productoId)?.nombre ??
+                  'Producto'
+                const quantity = Number(detail.cantidad ?? 0)
+                const subtotal = Number(detail.subtotal ?? detail.precioUnitario * quantity)
+
+                return `<tr><td>${productLabel}</td><td style="text-align:center;">${quantity > 0 ? quantity : '-'}</td><td style="text-align:right;">${formatCurrency(Number.isFinite(subtotal) ? subtotal : 0)}</td></tr>`
+              })
+              .join('')
+          : '<tr><td colspan="3" style="text-align:center;color:#666;">Sin productos</td></tr>'
+
+      const total = Number(printablePedido.total ?? 0)
+      const totalPagado = Number(printablePedido.totalPagado ?? 0)
+      const pendiente = Number(printablePedido.saldoPendiente ?? Math.max(total - totalPagado, 0))
+
+      const popup = window.open('', '_blank', 'width=420,height=700')
+      if (!popup) {
+        toast.error('No se pudo abrir la ventana de impresión. Revisa el bloqueador de popups.')
+        return
+      }
+
+      const html = `
+        <html>
+          <head>
+            <title>Reimpresión - Pedido #${printablePedido.id}</title>
+            <style>
+              body { font-family: Arial, sans-serif; padding: 14px; color: #222; }
+              h2, h3 { margin: 0 0 8px 0; }
+              .meta { font-size: 12px; color: #666; margin-bottom: 12px; }
+              table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+              th, td { border-bottom: 1px solid #ddd; padding: 6px 4px; font-size: 12px; }
+              th { text-align: left; }
+              .totals div { display: flex; justify-content: space-between; margin: 4px 0; font-size: 13px; }
+              .total { font-weight: 700; font-size: 14px; }
+            </style>
+          </head>
+          <body>
+            <h2>Brisas</h2>
+            <h3>Reimpresión de pedido</h3>
+            <div class="meta">Pedido #${printablePedido.id} ${printablePedido.codigo ? `• ${printablePedido.codigo}` : ''}<br/>${now.toLocaleString('es-CR')}</div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Producto</th>
+                  <th style="text-align:center;">Cant.</th>
+                  <th style="text-align:right;">Subtotal</th>
+                </tr>
+              </thead>
+              <tbody>${rowsHtml}</tbody>
+            </table>
+            <div class="totals">
+              <div><span>Total</span><span>${formatCurrency(total)}</span></div>
+              <div><span>Pagado</span><span>${formatCurrency(totalPagado)}</span></div>
+              <div class="total"><span>Pendiente</span><span>${formatCurrency(pendiente)}</span></div>
+            </div>
+          </body>
+        </html>
+      `
+
+      popup.document.open()
+      popup.document.write(html)
+      popup.document.close()
+      popup.focus()
+      popup.print()
+
+      toast.success('Reimpresión preparada correctamente.')
+    } catch (requestError) {
+      const backendMessage =
+        axios.isAxiosError(requestError) && requestError.response
+          ? extractBackendMessage(requestError.response.data)
+          : ''
+      toast.error(backendMessage || 'No fue posible reimprimir el pedido.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function resolveSelectedPedidoId(): number | null {
+    return selectedPedido ? toPositiveNumber(selectedPedido.id) : null
+  }
+
+  async function handleSendToKitchenFromDetails() {
+    const pedidoId = resolveSelectedPedidoId()
+    if (!pedidoId) {
+      toast.error('No se encontro un id de pedido valido para enviar a cocina.')
+      return
+    }
+
+    setSaving(true)
+    try {
+      await pedidosService.sendToKitchen(pedidoId)
+      toast.success('Comanda enviada a cocina.')
+      await loadPedidos()
+      if (selectedPedido) {
+        await openDetailsDialog({ ...selectedPedido, id: pedidoId })
+      }
+    } catch (requestError) {
+      const backendMessage =
+        axios.isAxiosError(requestError) && requestError.response
+          ? extractBackendMessage(requestError.response.data)
+          : ''
+      toast.error(backendMessage || 'No fue posible enviar la comanda a cocina.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function openInvoicePreview() {
+    const pedidoId = resolveSelectedPedidoId()
+    if (!pedidoId || !selectedPedido) {
+      toast.error('No se encontro un pedido valido para facturar.')
+      return
+    }
+
+    setInvoicePreviewPedido(selectedPedido)
+    setInvoicePreviewDetails(currentDetails)
+    setInvoicePreviewOpen(true)
+  }
+
   const detailBalance = useMemo(() => {
     const total = selectedPedido?.total ?? 0
     const paid = selectedPedido?.totalPagado ?? currentPayments.reduce((sum, payment) => sum + payment.monto, 0)
@@ -1131,7 +1997,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                 <MenuItem value="">Todas</MenuItem>
                 {mesas.map((mesa) => (
                   <MenuItem key={mesa.id} value={mesa.id}>
-                    {getMesaDisplayName(mesa)}
+                    {getMesaDisplayName(mesa)} {reservadaByMesa[mesa.id] ? '• Reservada' : '• Disponible'}
                   </MenuItem>
                 ))}
               </TextField>
@@ -1141,10 +2007,31 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
           <Box
             sx={{
               display: 'grid',
-              gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' },
+              gridTemplateColumns: { xs: '1fr', md: 'repeat(4, minmax(0, 1fr))' },
               gap: 2,
             }}
           >
+            <TextField
+              select
+              fullWidth
+              label="Cliente"
+              value={filterForm.clienteId}
+              onChange={(event) => setFilterForm((current) => ({ ...current, clienteId: event.target.value }))}
+              sx={{
+                '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+              }}
+            >
+              <MenuItem value="">Todos</MenuItem>
+              {clientes
+                .filter((cliente) => cliente.activo !== false)
+                .map((cliente) => (
+                  <MenuItem key={cliente.id} value={cliente.id}>
+                    {cliente.nombre} • {cliente.telefono}
+                  </MenuItem>
+                ))}
+            </TextField>
+
             {isTakeoutMode ? (
               <TextField
                 fullWidth
@@ -1182,6 +2069,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
               type="date"
               value={filterForm.fechaDesde}
               onChange={(event) => setFilterForm((current) => ({ ...current, fechaDesde: event.target.value }))}
+              slotProps={{ inputLabel: { shrink: true } }}
               sx={{
                 '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
                 '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
@@ -1193,6 +2081,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
               type="date"
               value={filterForm.fechaHasta}
               onChange={(event) => setFilterForm((current) => ({ ...current, fechaHasta: event.target.value }))}
+              slotProps={{ inputLabel: { shrink: true } }}
               sx={{
                 '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
                 '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
@@ -1254,18 +2143,32 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
             </Typography>
           </Box>
         ) : (
-          <Table>
+          <TableContainer sx={{ overflowX: 'auto' }}>
+            <Table sx={{ minWidth: 1120 }}>
             <TableHead>
               <TableRow>
                 <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Código</TableCell>
                 <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Mesa</TableCell>
+                <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Cliente</TableCell>
                 {!isTakeoutMode ? <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Usuario</TableCell> : null}
                 <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Tipo</TableCell>
                 <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Estado</TableCell>
                 <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Total</TableCell>
                 <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Saldo</TableCell>
                 <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Creado</TableCell>
-                <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }} align="right">
+                <TableCell
+                  sx={{
+                    color: COLOR_GOLD,
+                    fontWeight: 700,
+                    minWidth: 240,
+                    position: 'sticky',
+                    right: 0,
+                    zIndex: 2,
+                    backgroundColor: '#0f0b08',
+                    boxShadow: '-8px 0 10px rgba(0,0,0,0.25)',
+                  }}
+                  align="right"
+                >
                   Acciones
                 </TableCell>
               </TableRow>
@@ -1274,11 +2177,36 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
               {sortedPedidos.map((pedido) => {
                 const total = pedido.total ?? 0
                 const saldo = pedido.saldoPendiente ?? Math.max(total - (pedido.totalPagado ?? 0), 0)
+                const mesaId = resolvePedidoMesaId(pedido)
+                const mesaReservada = mesaId ? Boolean(reservadaByMesa[mesaId]) : false
 
                 return (
                   <TableRow key={pedido.id} hover sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
                     <TableCell sx={{ color: COLOR_TEXT, fontWeight: 700 }}>{pedido.codigo ?? `#${pedido.id}`}</TableCell>
-                    <TableCell sx={{ color: COLOR_TEXT }}>{getPedidoMesaLabel(pedido)}</TableCell>
+                    <TableCell sx={{ color: COLOR_TEXT, minWidth: 120 }}>
+                      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                        <Typography sx={{ color: COLOR_TEXT, fontWeight: 600 }}>{getPedidoMesaListLabel(pedido)}</Typography>
+                        {mesaId && !isTakeoutMode ? (
+                          <Chip
+                            size="small"
+                            label={mesaReservada ? 'Reservada' : 'Disponible'}
+                            sx={{
+                              fontWeight: 700,
+                              backgroundColor: mesaReservada ? 'rgba(143,29,46,0.2)' : 'rgba(76,175,80,0.14)',
+                              color: mesaReservada ? '#f7b3bd' : '#9ae6a0',
+                            }}
+                          />
+                        ) : null}
+                      </Stack>
+                    </TableCell>
+                    <TableCell sx={{ color: COLOR_TEXT }}>
+                      <Typography sx={{ color: COLOR_TEXT, fontWeight: 600 }}>
+                        {getPedidoClienteNombre(pedido)}
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: COLOR_MUTED }}>
+                        {getPedidoClienteTelefono(pedido)}
+                      </Typography>
+                    </TableCell>
                     {!isTakeoutMode ? <TableCell sx={{ color: COLOR_MUTED }}>{getPedidoUserLabel(pedido, users)}</TableCell> : null}
                     <TableCell sx={{ color: COLOR_MUTED }}>{pedido.tipo}</TableCell>
                     <TableCell>
@@ -1286,34 +2214,76 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                         size="small"
                         label={String(pedido.estado)}
                         color={getStatusTone(String(pedido.estado))}
-                        sx={{ fontWeight: 700 }}
+                        sx={getStatusChipSx(String(pedido.estado))}
                       />
                     </TableCell>
                     <TableCell sx={{ color: COLOR_TEXT }}>{formatCurrency(total)}</TableCell>
                     <TableCell sx={{ color: saldo > 0 ? '#f7b267' : '#9ae6a0' }}>{formatCurrency(saldo)}</TableCell>
                     <TableCell sx={{ color: COLOR_MUTED }}>{formatDateTime(pedido.createdAt)}</TableCell>
-                    <TableCell align="right">
-                      <Stack direction="row" spacing={0.5} sx={{ justifyContent: 'flex-end' }}>
-                        <IconButton onClick={() => void openDetailsDialog(pedido)} sx={{ color: COLOR_GOLD }}>
-                          <VisibilityIcon />
-                        </IconButton>
-                        <IconButton onClick={() => openEditDialog(pedido)} sx={{ color: COLOR_GOLD }}>
-                          <EditIcon />
-                        </IconButton>
-                        <IconButton
-                          onClick={() => void handleDeletePedido(pedido)}
-                          disabled={saving || !canDeletePedido(String(pedido.estado))}
-                          sx={{ color: canDeletePedido(String(pedido.estado)) ? '#f39ca8' : 'rgba(243,233,210,0.35)' }}
-                        >
-                          <DeleteIcon />
-                        </IconButton>
+                    <TableCell
+                      align="right"
+                      sx={{
+                        minWidth: 240,
+                        width: 240,
+                        position: 'sticky',
+                        right: 0,
+                        zIndex: 1,
+                        backgroundColor: 'rgba(10,10,10,0.96)',
+                        boxShadow: '-8px 0 10px rgba(0,0,0,0.2)',
+                      }}
+                    >
+                      <Stack direction="row" spacing={0.5} sx={{ justifyContent: 'flex-end', flexWrap: 'nowrap' }}>
+                        <Tooltip title="Ver detalle">
+                          <IconButton size="small" onClick={() => void openDetailsDialog(pedido)} sx={getActionButtonSx(COLOR_GOLD)}>
+                            <VisibilityIcon />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Reimprimir pedido">
+                          <IconButton
+                            size="small"
+                            onClick={() => void handleReprintPedido(pedido)}
+                            disabled={saving}
+                            sx={getActionButtonSx('#9ec7ff')}
+                          >
+                            <PrintIcon />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Editar pedido">
+                          <IconButton
+                            size="small"
+                            onClick={() => {
+                              if (isTakeoutMode) {
+                                void openDetailsDialog(pedido)
+                                return
+                              }
+
+                              openEditDialog(pedido)
+                            }}
+                            sx={getActionButtonSx(COLOR_GOLD)}
+                          >
+                            <EditIcon />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title={canDeletePedido(String(pedido.estado)) ? 'Eliminar pedido' : 'Solo BORRADOR o CANCELADO'}>
+                          <span>
+                            <IconButton
+                              size="small"
+                              onClick={() => void handleDeletePedido(pedido)}
+                              disabled={saving || !canDeletePedido(String(pedido.estado))}
+                              sx={getActionButtonSx('#f39ca8')}
+                            >
+                              <DeleteIcon />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
                       </Stack>
                     </TableCell>
                   </TableRow>
                 )
               })}
             </TableBody>
-          </Table>
+            </Table>
+          </TableContainer>
         )}
       </Paper>
 
@@ -1400,6 +2370,79 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                 ))}
               </TextField>
 
+              {(isTakeoutMode || pedidoForm.tipo === 'LLEVAR') ? (
+                <>
+                  <TextField
+                    label="Nombre del cliente"
+                    value={pedidoForm.clienteNombre}
+                    onChange={(event) =>
+                      setPedidoForm((current) => ({
+                        ...current,
+                        clienteId: '',
+                        clienteNombre: event.target.value,
+                      }))
+                    }
+                    onBlur={() => {
+                      const localClient = tryResolveLocalClientByName(pedidoForm.clienteNombre)
+                      if (localClient) {
+                        linkClientToPedidoForm(localClient)
+                      }
+                    }}
+                    fullWidth
+                    sx={{
+                      '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                      '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                    }}
+                  />
+
+                  <TextField
+                    label="Teléfono del cliente"
+                    value={pedidoForm.clienteTelefono}
+                    onChange={(event) =>
+                      setPedidoForm((current) => ({
+                        ...current,
+                        clienteTelefono: event.target.value,
+                      }))
+                    }
+                    fullWidth
+                    sx={{
+                      '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                      '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                    }}
+                  />
+
+                  <Stack direction="row" spacing={1} sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={() => {
+                        void (async () => {
+                          const foundByName = await searchClientByName(pedidoForm.clienteNombre)
+                          const found = foundByName ?? (pedidoForm.clienteTelefono.trim()
+                            ? await searchClientByPhone(pedidoForm.clienteTelefono)
+                            : null)
+                          const resolved = found ?? await searchClientInsensitive(pedidoForm.clienteNombre, pedidoForm.clienteTelefono)
+                          if (resolved) {
+                            linkClientToPedidoForm(resolved)
+                            toast.success('Cliente encontrado y cargado.')
+                          } else {
+                            toast.info('Cliente no encontrado. Se creara al guardar el pedido.')
+                          }
+                        })()
+                      }}
+                      sx={{ color: COLOR_GOLD, borderColor: 'rgba(212,175,55,0.45)' }}
+                    >
+                      Buscar cliente
+                    </Button>
+                    {pedidoForm.clienteId ? (
+                      <Typography variant="caption" sx={{ color: COLOR_MUTED }}>
+                        Cliente vinculado #{pedidoForm.clienteId}
+                      </Typography>
+                    ) : null}
+                  </Stack>
+                </>
+              ) : null}
+
               {isTakeoutMode ? null : (
                 <TextField
                   select
@@ -1436,7 +2479,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                   <MenuItem value="">Selecciona una mesa activa</MenuItem>
                   {activeMesas.map((mesa) => (
                     <MenuItem key={mesa.id} value={mesa.id}>
-                      {getMesaDisplayName(mesa)}
+                      {getMesaDisplayName(mesa)} {reservadaByMesa[mesa.id] ? '• Reservada' : '• Disponible'}
                     </MenuItem>
                   ))}
                 </TextField>
@@ -1659,6 +2702,10 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                 {[
                   { label: 'Código', value: selectedPedido.codigo ?? `#${selectedPedido.id}` },
                   { label: 'Mesa', value: getPedidoMesaLabel(selectedPedido) },
+                  {
+                    label: 'Cliente',
+                    value: `${getPedidoClienteNombre(selectedPedido)} • ${getPedidoClienteTelefono(selectedPedido)}`,
+                  },
                   { label: 'Total', value: formatCurrency(selectedPedido.total ?? 0) },
                   { label: 'Saldo pendiente', value: formatCurrency(detailBalance) },
                 ].map((item) => (
@@ -1811,11 +2858,57 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
           ) : null}
         </DialogContent>
         <DialogActions sx={{ backgroundColor: '#160f0c', p: 2.5 }}>
+          {selectedPedido ? (
+            <Button
+              variant="outlined"
+              onClick={() => void handleSendToKitchenFromDetails()}
+              disabled={saving || loadingDetails || currentDetails.length === 0}
+              sx={{ color: COLOR_GOLD, borderColor: 'rgba(212,175,55,0.35)' }}
+            >
+              Enviar a cocina
+            </Button>
+          ) : null}
+          {selectedPedido ? (
+            <Button
+              variant="outlined"
+              onClick={openInvoicePreview}
+              disabled={saving || loadingDetails || currentDetails.length === 0}
+              sx={{ color: COLOR_TEXT, borderColor: 'rgba(243,233,210,0.35)' }}
+            >
+              Facturar
+            </Button>
+          ) : null}
           <Button onClick={closeDetailsDialog} sx={{ color: COLOR_TEXT }}>
             Cerrar
           </Button>
         </DialogActions>
       </Dialog>
+
+        <FacturacionModal
+          open={invoicePreviewOpen}
+          pedidoId={resolveSelectedPedidoId()}
+          pedidoFallback={invoicePreviewPedido}
+          detailsFallback={invoicePreviewDetails}
+          onClose={() => {
+            if (!saving) {
+              setInvoicePreviewOpen(false)
+            }
+          }}
+          onFacturado={async () => {
+            await loadPedidos()
+
+            const pedidoId = toPositiveNumber(invoicePreviewPedido?.id)
+            if (pedidoId) {
+              const match = pedidos.find((item) => item.id === pedidoId) ?? invoicePreviewPedido
+              if (match) {
+                await openDetailsDialog(match)
+              }
+            }
+
+            setInvoicePreviewPedido(null)
+            setInvoicePreviewDetails([])
+          }}
+        />
 
       <Dialog open={detailDialogOpen} onClose={() => setDetailDialogOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle sx={{ backgroundColor: '#160f0c', color: COLOR_GOLD, fontWeight: 800 }}>
