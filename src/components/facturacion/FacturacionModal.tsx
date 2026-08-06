@@ -4,6 +4,7 @@ import {
   Alert,
   Box,
   Button,
+  Checkbox,
   Chip,
   CircularProgress,
   Dialog,
@@ -46,6 +47,12 @@ const COLOR_GOLD = '#D4AF37'
 const COLOR_TEXT = '#F3E9D2'
 const COLOR_MUTED = 'rgba(243,233,210,0.72)'
 const ORDER_SCOPE_KEY = 'UNASSIGNED'
+const MONEY_EPSILON = 0.01
+const PAID_ACCOUNT_STATUSES = new Set(['PAGADA', 'PAGADO', 'CERRADA', 'CERRADO', 'FACTURADA', 'FACTURADO'])
+
+function isPaidAccountStatus(status: unknown): boolean {
+  return PAID_ACCOUNT_STATUSES.has(String(status ?? '').trim().toUpperCase())
+}
 
 function toPositiveInt(value: unknown): number | null {
   const parsed = Number(value)
@@ -158,6 +165,22 @@ function normalizePedidoDetail(item: unknown): PedidoDetalle | null {
   const productoId = Number(record.productoId ?? record.product_id ?? record.producto_id ?? 0)
   const cantidad = Number(record.cantidad ?? record.qty ?? 0)
   const precioUnitario = Number(record.precioUnitario ?? record.precio_unitario ?? record.price ?? 0)
+  const productoRecord =
+    typeof record.producto === 'object' && record.producto !== null
+      ? (record.producto as Record<string, unknown>)
+      : null
+  const productoNombre =
+    typeof record.productoNombre === 'string'
+      ? record.productoNombre
+      : typeof record.nombreProducto === 'string'
+        ? record.nombreProducto
+        : typeof record.product_name === 'string'
+          ? record.product_name
+          : typeof record.productName === 'string'
+            ? record.productName
+            : typeof productoRecord?.nombre === 'string'
+              ? productoRecord.nombre
+              : undefined
 
   if (!Number.isFinite(id) || id <= 0 || !Number.isFinite(productoId) || productoId <= 0) {
     return null
@@ -166,10 +189,8 @@ function normalizePedidoDetail(item: unknown): PedidoDetalle | null {
   return {
     id,
     productoId,
-    producto:
-      typeof record.producto === 'object' && record.producto !== null
-        ? (record.producto as PedidoDetalle['producto'])
-        : undefined,
+    productoNombre,
+    producto: productoRecord ? ({ ...(productoRecord as PedidoDetalle['producto']), nombre: productoNombre ?? String(productoRecord.nombre ?? '') } as PedidoDetalle['producto']) : productoNombre ? { nombre: productoNombre } : undefined,
     cantidad: Number.isFinite(cantidad) ? cantidad : 0,
     precioUnitario: Number.isFinite(precioUnitario) ? precioUnitario : 0,
     observacion: typeof record.observacion === 'string' ? record.observacion : undefined,
@@ -221,7 +242,15 @@ function normalizePago(item: unknown): PagoPedido | null {
     monto: Number.isFinite(monto) ? monto : 0,
     moneda: typeof record.moneda === 'string' ? record.moneda : undefined,
     monedaId: toPositiveInt(record.monedaId ?? record.moneda_id) ?? undefined,
-    accountId: toPositiveInt(record.accountId ?? record.account_id ?? record.cuentaId ?? record.cuenta_id) ?? undefined,
+    accountId:
+      toPositiveInt(
+        record.accountId ??
+          record.account_id ??
+          record.cuentaId ??
+          record.cuenta_id ??
+          record.cuentaPedidoId ??
+          record.cuenta_pedido_id,
+      ) ?? undefined,
     montoColones: Number(record.montoColones ?? record.monto_colones ?? 0) || undefined,
     montoRecibido: Number(record.montoRecibido ?? record.monto_recibido ?? 0) || undefined,
     montoRecibidoColones: Number(record.montoRecibidoColones ?? record.monto_recibido_colones ?? 0) || undefined,
@@ -284,12 +313,21 @@ function normalizeAccount(item: unknown): PedidoAccount | null {
   }
 
   const record = item as Record<string, unknown>
-  const id = Number(record.id ?? record.accountId ?? record.account_id ?? 0)
+  const id = Number(record.id ?? record.accountId ?? record.account_id ?? record.cuentaId ?? record.cuenta_id ?? 0)
   if (!Number.isFinite(id) || id <= 0) {
     return null
   }
 
-  const rawDetalles = record.detalles ?? record.details ?? record.accountDetails ?? record.account_details ?? []
+  const rawDetalles =
+    record.detalles ??
+    record.details ??
+    record.accountDetails ??
+    record.account_details ??
+    record.pedidoCuentaDetalles ??
+    record.pedido_cuenta_detalles ??
+    record.detallesCuenta ??
+    record.items ??
+    []
   const detalles = Array.isArray(rawDetalles)
     ? rawDetalles
         .map((detail) => normalizeAccountDetail(detail))
@@ -309,10 +347,13 @@ function normalizeAccount(item: unknown): PedidoAccount | null {
             ? record.numero_cuenta
             : undefined,
     activo: Boolean(record.activo ?? true),
+    estado: typeof record.estado === 'string' ? record.estado : typeof record.status === 'string' ? record.status : undefined,
     detalles,
-    subtotal: Number(record.subtotal ?? 0) || undefined,
-    servicio: Number(record.servicio ?? 0) || undefined,
-    total: Number(record.total ?? 0) || undefined,
+    subtotal: Number(record.subtotal ?? record.sub_total ?? 0) || undefined,
+    servicio: Number(record.servicio ?? record.impuesto ?? record.service ?? 0) || undefined,
+    total: Number(record.total ?? record.total_cuenta ?? 0) || undefined,
+    totalPagado: Number(record.totalPagado ?? record.total_pagado ?? record.pagado ?? record.monto_pagado ?? 0) || undefined,
+    saldoPendiente: Number(record.saldoPendiente ?? record.saldo_pendiente ?? record.pendiente ?? record.monto_pendiente ?? 0) || undefined,
   }
 }
 
@@ -381,6 +422,9 @@ function unwrapArrayPayload<T>(payload: unknown, normalizer: (item: unknown) => 
       'items',
       'results',
       'accounts',
+      'cuentas',
+      'pedidoAccounts',
+      'pedido_accounts',
       'payments',
       'methods',
       'details',
@@ -485,8 +529,7 @@ export default function FacturacionModal({
   const [selectedAccountId, setSelectedAccountId] = useState('')
   const [newAccountName, setNewAccountName] = useState('')
   const [newAccountNumber, setNewAccountNumber] = useState('')
-  const [selectedDetailToSplit, setSelectedDetailToSplit] = useState('')
-  const [splitQuantity, setSplitQuantity] = useState('')
+  const [splitSelectionByDetail, setSplitSelectionByDetail] = useState<Record<number, { checked: boolean; cantidad: string }>>({})
   const [detailMoveQty, setDetailMoveQty] = useState<Record<string, string>>({})
   const [detailMoveTarget, setDetailMoveTarget] = useState<Record<string, string>>({})
 
@@ -729,6 +772,21 @@ export default function FacturacionModal({
     return result
   }, [accounts])
 
+  const assignedDetailIds = useMemo(() => {
+    const ids = new Set<number>()
+
+    for (const account of accounts) {
+      for (const detail of account.detalles ?? []) {
+        const detailId = toPositiveInt(detail.detailId ?? detail.pedidoDetalleId)
+        if (detailId) {
+          ids.add(detailId)
+        }
+      }
+    }
+
+    return ids
+  }, [accounts])
+
   const unassignedDetails = useMemo(() => {
     return details
       .map((detail) => {
@@ -736,7 +794,15 @@ export default function FacturacionModal({
         const detailQty = Number(detail.cantidad ?? 0)
         const unitPrice = Number(detail.precioUnitario ?? 0)
         const fallbackSubtotal = Number(detail.subtotal ?? detailQty * unitPrice)
-        const remainingQty = Number.isFinite(detailQty) ? Math.max(detailQty - assignedQty, 0) : 0
+        const hasQuantityAssignment = assignedQty > 0
+        const assignedByReference = assignedDetailIds.has(detail.id)
+        const remainingQty = Number.isFinite(detailQty)
+          ? hasQuantityAssignment
+            ? Math.max(detailQty - assignedQty, 0)
+            : assignedByReference
+              ? 0
+              : detailQty
+          : 0
         const subtotal = remainingQty > 0 ? remainingQty * unitPrice : 0
 
         if (remainingQty <= 0) {
@@ -745,13 +811,13 @@ export default function FacturacionModal({
 
         return {
           detailId: detail.id,
-          label: detail.producto?.nombre ?? `Producto #${detail.productoId}`,
+          label: detail.producto?.nombre ?? detail.productoNombre ?? 'Producto',
           cantidad: roundMoney(remainingQty),
           subtotal: subtotal > 0 ? roundMoney(subtotal) : roundMoney(fallbackSubtotal),
         }
       })
       .filter((item): item is { detailId: number; label: string; cantidad: number; subtotal: number } => item !== null)
-  }, [assignedQuantityByDetailId, details])
+  }, [assignedDetailIds, assignedQuantityByDetailId, details])
 
   function getScopeKey(accountId: number | null): string {
     return accountId ? `ACCOUNT:${accountId}` : ORDER_SCOPE_KEY
@@ -779,9 +845,24 @@ export default function FacturacionModal({
 
   function getScopeAmounts(accountId: number | null) {
     const scopeKey = getScopeKey(accountId)
-    const subtotal = accountId ? Number(accountSubtotalById.get(accountId) ?? 0) : unassignedSubtotal
-    const serviceAmount = isServiceApplied(scopeKey) ? subtotal * serviceRate : 0
-    const totalCRC = roundMoney(subtotal + serviceAmount)
+    const account = accountId ? accounts.find((item) => item.id === accountId) ?? null : null
+
+    const computedSubtotal = accountId ? Number(accountSubtotalById.get(accountId) ?? 0) : unassignedSubtotal
+    const backendSubtotal = Number(account?.subtotal ?? 0)
+    const subtotal =
+      accountId && Number.isFinite(backendSubtotal) && backendSubtotal > 0 ? roundMoney(backendSubtotal) : roundMoney(computedSubtotal)
+
+    const computedServiceAmount = isServiceApplied(scopeKey) ? subtotal * serviceRate : 0
+    const backendServiceAmount = Number(account?.servicio ?? 0)
+    const serviceAmount =
+      accountId && Number.isFinite(backendServiceAmount) && backendServiceAmount >= 0
+        ? roundMoney(backendServiceAmount)
+        : roundMoney(computedServiceAmount)
+
+    const backendTotal = Number(account?.total ?? 0)
+    const computedTotal = roundMoney(subtotal + serviceAmount)
+    const totalCRC =
+      accountId && Number.isFinite(backendTotal) && backendTotal > 0 ? roundMoney(backendTotal) : roundMoney(computedTotal)
 
     const paidCRC = roundMoney(
       payments.reduce((sum, payment) => {
@@ -810,31 +891,44 @@ export default function FacturacionModal({
       }, 0),
     )
 
-    const pendingCRC = roundMoney(Math.max(totalCRC - paidCRC, 0))
-    const chargeCRC = roundMoney(Math.min(pendingCRC, backendPendingCRC > 0 ? backendPendingCRC : pendingCRC))
+    const calculatedPending = roundMoney(Math.max(totalCRC - paidCRC, 0))
+    const backendPending = Number(account?.saldoPendiente ?? NaN)
+    const hasBackendPending = accountId && Number.isFinite(backendPending) && backendPending >= 0
+    const backendPendingCRC = hasBackendPending ? roundMoney(Math.max(backendPending, 0)) : null
+    const pendingCRC = isPaidAccountStatus(account?.estado)
+      ? 0
+      : backendPendingCRC !== null
+        ? backendPendingCRC
+        : calculatedPending
+    const effectivePaidCRC = roundMoney(Math.max(totalCRC - pendingCRC, 0))
+    const chargeCRC = pendingCRC
     const totalUSD = exchangeRate ? roundMoney(totalCRC / exchangeRate) : null
     const chargeUSD = exchangeRate ? roundMoney(chargeCRC / exchangeRate) : null
+    const isClosed = accountId ? isPaidAccountStatus(account?.estado) || pendingCRC <= MONEY_EPSILON : pendingCRC <= MONEY_EPSILON
 
     return {
       subtotal: roundMoney(subtotal),
       serviceAmount: roundMoney(serviceAmount),
       totalCRC,
       totalUSD,
-      paidCRC,
+      paidCRC: effectivePaidCRC,
       pendingCRC,
       chargeCRC,
       chargeUSD,
+      isClosed,
     }
   }
 
   const billingScopes = useMemo(() => {
-    const base = [
-      {
-        key: ORDER_SCOPE_KEY,
-        accountId: null as number | null,
-        title: 'Cuenta principal (no asignado)',
-      },
-    ]
+    const base = accounts.length
+      ? []
+      : [
+          {
+            key: ORDER_SCOPE_KEY,
+            accountId: null as number | null,
+            title: 'Cuenta principal (no asignado)',
+          },
+        ]
 
     const accountScopes = accounts.map((account) => ({
       key: getScopeKey(account.id),
@@ -844,6 +938,12 @@ export default function FacturacionModal({
 
     return [...base, ...accountScopes]
   }, [accounts])
+
+  const openBillingScopes = billingScopes.filter((scope) => !getScopeAmounts(scope.accountId).isClosed)
+  const closedBillingScopes = billingScopes.filter((scope) => getScopeAmounts(scope.accountId).isClosed)
+  const pendingAcrossAccountsCRC = roundMoney(
+    openBillingScopes.reduce((sum, scope) => sum + getScopeAmounts(scope.accountId).pendingCRC, 0),
+  )
 
   function resolveMonedaId(currency: 'CRC' | 'USD'): number | null {
     const normalizedCode = currency.toUpperCase()
@@ -872,28 +972,43 @@ export default function FacturacionModal({
   }
 
   function buildSplitItemsFromSelection() {
-    const detailId = toPositiveInt(selectedDetailToSplit)
-    if (!detailId) {
+    const selectedDetailIds = Object.entries(splitSelectionByDetail)
+      .filter(([, value]) => value.checked)
+      .map(([detailId]) => Number(detailId))
+      .filter((detailId) => Number.isFinite(detailId) && detailId > 0)
+
+    if (selectedDetailIds.length === 0) {
       return []
     }
 
-    const detail = detailsById.get(detailId)
-    if (!detail) {
-      return []
+    const items: Array<{ detailId?: number; productoId?: number; cantidad?: number }> = []
+
+    for (const detailId of selectedDetailIds) {
+      const detail = detailsById.get(detailId)
+      if (!detail) {
+        continue
+      }
+
+      const selectedRow = splitSelectionByDetail[detailId]
+      const parsedQuantity = Number(selectedRow?.cantidad ?? '')
+      const maxCantidad = Number(detail.cantidad)
+      if (Number.isFinite(parsedQuantity) && parsedQuantity > 0 && Number.isFinite(maxCantidad) && maxCantidad > 0 && parsedQuantity > maxCantidad) {
+        toast.error(`La cantidad para ${detail.producto?.nombre ?? detail.productoNombre ?? 'producto'} no puede exceder ${maxCantidad}.`)
+        return null
+      }
+
+      items.push({
+        detailId,
+        productoId: detail.productoId,
+        cantidad: Number.isFinite(parsedQuantity) && parsedQuantity > 0 ? parsedQuantity : undefined,
+      })
     }
 
-    const parsedQuantity = Number(splitQuantity)
-    if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0) {
-      return [{ detailId }]
-    }
+    return items
+  }
 
-    const maxCantidad = Number(detail.cantidad)
-    if (Number.isFinite(maxCantidad) && maxCantidad > 0 && parsedQuantity > maxCantidad) {
-      toast.error(`La cantidad a mover no puede exceder ${maxCantidad}.`)
-      return null
-    }
-
-    return [{ detailId, cantidad: parsedQuantity }]
+  function clearSplitSelection() {
+    setSplitSelectionByDetail({})
   }
 
   function getDetailMoveKey(accountId: number, accountDetailId: number): string {
@@ -911,10 +1026,14 @@ export default function FacturacionModal({
     }
 
     const parsedAccountNumber = Number(newAccountNumber)
+    const maxExistingNumber = accounts.reduce((max, account) => {
+      const value = Number(account.numeroCuenta ?? account.numero ?? 0)
+      return Number.isFinite(value) && value > max ? value : max
+    }, 0)
     const accountNumber =
       Number.isFinite(parsedAccountNumber) && parsedAccountNumber > 0
         ? Math.trunc(parsedAccountNumber)
-        : accounts.length + 1
+        : maxExistingNumber + 1
 
     const items = buildSplitItemsFromSelection()
     if (items === null) {
@@ -963,8 +1082,7 @@ export default function FacturacionModal({
 
       setNewAccountName('')
       setNewAccountNumber('')
-      setSelectedDetailToSplit('')
-      setSplitQuantity('')
+      clearSplitSelection()
       toast.success(items.length > 0 ? 'Cuenta creada y productos divididos.' : 'Cuenta creada.')
       await reloadAccountsAndPayments()
       if (createdAccountId) {
@@ -1001,8 +1119,7 @@ export default function FacturacionModal({
     setSaving(true)
     try {
       await pedidosService.addAccountDetail(pedidoId, accountId, { items })
-      setSelectedDetailToSplit('')
-      setSplitQuantity('')
+      clearSplitSelection()
       toast.success('Producto agregado a la cuenta.')
       await reloadAccountsAndPayments()
     } catch (requestError) {
@@ -1067,7 +1184,7 @@ export default function FacturacionModal({
 
     setSaving(true)
     try {
-      await pedidosService.removeAccountDetail(pedidoId, accountId, accountDetailId, {
+      await pedidosService.moveAccountDetail(pedidoId, accountId, accountDetailId, {
         cantidad,
       })
       toast.success('Producto devuelto a no asignado.')
@@ -1091,11 +1208,20 @@ export default function FacturacionModal({
     }
 
     const scopeKey = getScopeKey(accountId)
+
+    if (accounts.length > 0 && !accountId) {
+      toast.error('Debes indicar cuentaPedidoId para evitar cobrar una cuenta equivocada.')
+      return
+    }
+
     const metodoPagoId = toPositiveInt(getScopeMethodId(scopeKey))
     if (!metodoPagoId) {
       toast.error('Selecciona un método de pago.')
       return
     }
+
+    const methodName = String(methods.find((method) => method.id === metodoPagoId)?.nombre ?? '').trim().toUpperCase()
+    const isCashMethod = methodName.includes('EFECTIVO') || methodName.includes('CASH') || methodName.includes('CONTADO')
 
     const selectedCurrency = getScopeCurrency(scopeKey)
     const amounts = getScopeAmounts(accountId)
@@ -1110,24 +1236,27 @@ export default function FacturacionModal({
     const receivedNumber = Number(receivedRaw)
     const received = Number.isFinite(receivedNumber) ? receivedNumber : 0
 
-    if (!Number.isFinite(received) || received <= 0) {
-      toast.error('Ingresa un monto recibido válido.')
-      return
-    }
-
     if (selectedCurrency === 'USD' && !exchangeRate) {
       toast.error('No hay tipo de cambio activo para cobrar en dólares.')
       return
     }
 
-    const receivedInCRC = selectedCurrency === 'CRC' ? received : Number(exchangeRate ? received * exchangeRate : 0)
-    const changeCRC = Math.max(0, receivedInCRC - amounts.chargeCRC)
-    const changeSelected = selectedCurrency === 'CRC' ? changeCRC : Number(exchangeRate ? changeCRC / exchangeRate : 0)
+    if (isCashMethod) {
+      if (!Number.isFinite(received) || received <= 0) {
+        toast.error('Ingresa un monto recibido válido para efectivo.')
+        return
+      }
 
-    if (received < payableAmount) {
-      toast.error('El monto recibido es menor al total.')
-      return
+      if (received < payableAmount) {
+        toast.error('El monto recibido es menor al total.')
+        return
+      }
     }
+
+    const effectiveReceived = isCashMethod ? received : payableAmount
+    const receivedInCRC = selectedCurrency === 'CRC' ? effectiveReceived : Number(exchangeRate ? effectiveReceived * exchangeRate : 0)
+    const changeCRC = isCashMethod ? Math.max(0, receivedInCRC - amounts.chargeCRC) : 0
+    const changeSelected = selectedCurrency === 'CRC' ? changeCRC : Number(exchangeRate ? changeCRC / exchangeRate : 0)
 
     const monedaId = resolveMonedaId(selectedCurrency)
     if (!monedaId) {
@@ -1137,18 +1266,28 @@ export default function FacturacionModal({
 
     setSaving(true)
     try {
+      const cuentaPedidoId = accountId ?? undefined
+
       await pedidosService.createPayment(pedidoId, {
         metodoPagoId,
         monto: payableAmount,
+        montoMoneda: payableAmount,
         moneda: selectedCurrency,
         monedaId,
         montoColones: amounts.chargeCRC,
-        montoRecibido: received,
-        montoRecibidoColones: receivedInCRC,
+        ...(isCashMethod
+          ? {
+              montoRecibido: effectiveReceived,
+              montoRecibidoMoneda: effectiveReceived,
+              montoRecibidoColones: receivedInCRC,
+            }
+          : {}),
         vuelto: changeSelected,
         vueltoColones: changeCRC,
         tipoCambioId: selectedCurrency === 'USD' ? activeTipoCambio?.id : undefined,
-        accountId: accountId ?? undefined,
+        cuentaPedidoId,
+        cuentaId: cuentaPedidoId,
+        accountId: cuentaPedidoId,
         aplicarServicio: isMesaOrder ? isServiceApplied(scopeKey) : false,
         exonerarServicio: isMesaOrder ? !isServiceApplied(scopeKey) : true,
         referencia: (referenceByScope[scopeKey] ?? '').trim() || undefined,
@@ -1159,11 +1298,12 @@ export default function FacturacionModal({
       setReferenceByScope((current) => ({ ...current, [scopeKey]: '' }))
       await reloadAccountsAndPayments()
     } catch (requestError) {
+      const isBusinessConflict = axios.isAxiosError(requestError) && requestError.response?.status === 409
       const backendMessage =
         axios.isAxiosError(requestError) && requestError.response
           ? extractBackendMessage(requestError.response.data)
           : ''
-      toast.error(backendMessage || 'No fue posible registrar el pago.')
+      toast.error(backendMessage || (isBusinessConflict ? 'Conflicto de negocio al registrar el pago.' : 'No fue posible registrar el pago.'))
     } finally {
       setSaving(false)
     }
@@ -1189,6 +1329,96 @@ export default function FacturacionModal({
     } finally {
       setSaving(false)
     }
+  }
+
+  function handlePrintScope(accountId: number | null, title: string) {
+    const scopeAmounts = getScopeAmounts(accountId)
+    const now = new Date()
+
+    const account = accountId ? accounts.find((item) => item.id === accountId) : null
+    const accountDetails = account?.detalles ?? []
+
+    const lines = accountId
+      ? accountDetails.map((detail) => {
+          const detailId = detail.detailId ?? detail.pedidoDetalleId
+          const source = detailId ? detailsById.get(detailId) : null
+          const label = source?.producto?.nombre ?? source?.productoNombre ?? detail.productoNombre ?? 'Producto'
+          const quantity = Number(detail.cantidad ?? source?.cantidad ?? 0)
+          const amount = Number(detail.subtotal ?? source?.subtotal ?? quantity * Number(detail.precioUnitario ?? source?.precioUnitario ?? 0))
+
+          return {
+            label,
+            quantity,
+            amount: Number.isFinite(amount) ? amount : 0,
+          }
+        })
+      : unassignedDetails.map((detail) => ({
+          label: detail.label,
+          quantity: Number(detail.cantidad ?? 0),
+          amount: Number(detail.subtotal ?? 0),
+        }))
+
+    const rowsHtml =
+      lines.length > 0
+        ? lines
+            .map(
+              (line) =>
+                `<tr><td>${line.label}</td><td style="text-align:center;">${line.quantity > 0 ? line.quantity : '-'}</td><td style="text-align:right;">${formatCRC(line.amount)}</td></tr>`,
+            )
+            .join('')
+        : '<tr><td colspan="3" style="text-align:center;color:#666;">Sin productos</td></tr>'
+
+    const popup = window.open('', '_blank', 'width=420,height=700')
+    if (!popup) {
+      toast.error('No se pudo abrir la ventana de impresión. Revisa el bloqueador de popups.')
+      return
+    }
+
+    const html = `
+      <html>
+        <head>
+          <title>${title} - Pedido #${pedido?.id ?? pedidoId ?? ''}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 14px; color: #222; }
+            h2, h3 { margin: 0 0 8px 0; }
+            .meta { font-size: 12px; color: #666; margin-bottom: 12px; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+            th, td { border-bottom: 1px solid #ddd; padding: 6px 4px; font-size: 12px; }
+            th { text-align: left; }
+            .totals div { display: flex; justify-content: space-between; margin: 4px 0; font-size: 13px; }
+            .total { font-weight: 700; font-size: 14px; }
+          </style>
+        </head>
+        <body>
+          <h2>Brisas</h2>
+          <h3>${title}</h3>
+          <div class="meta">Pedido #${pedido?.id ?? pedidoId ?? ''} ${pedido?.codigo ? `• ${pedido.codigo}` : ''}<br/>${now.toLocaleString('es-CR')}</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th style="text-align:center;">Cant.</th>
+                <th style="text-align:right;">Subtotal</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+          <div class="totals">
+            <div><span>Subtotal</span><span>${formatCRC(scopeAmounts.subtotal)}</span></div>
+            <div><span>Servicio</span><span>${formatCRC(scopeAmounts.serviceAmount)}</span></div>
+            <div class="total"><span>Total</span><span>${formatCRC(scopeAmounts.totalCRC)}</span></div>
+            <div><span>Pagado</span><span>${formatCRC(scopeAmounts.paidCRC)}</span></div>
+            <div><span>Pendiente</span><span>${formatCRC(scopeAmounts.pendingCRC)}</span></div>
+          </div>
+        </body>
+      </html>
+    `
+
+    popup.document.open()
+    popup.document.write(html)
+    popup.document.close()
+    popup.focus()
+    popup.print()
   }
 
   return (
@@ -1289,51 +1519,86 @@ export default function FacturacionModal({
                 </Stack>
 
                 <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
-                  <TextField
-                    label="Producto"
-                    select
-                    value={selectedDetailToSplit}
-                    onChange={(event) => setSelectedDetailToSplit(event.target.value)}
-                    fullWidth
-                    helperText="Si eliges producto y luego creas cuenta, se divide automáticamente en esa nueva cuenta."
-                    sx={{
-                      '& .MuiFormHelperText-root': { color: COLOR_MUTED },
-                      '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
-                      '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
-                    }}
-                  >
-                    <MenuItem value="">Seleccionar producto</MenuItem>
-                    {details.map((detail) => {
-                      const detailSubtotal = detail.subtotal ?? detail.precioUnitario * detail.cantidad
-                      return (
-                        <MenuItem key={detail.id} value={String(detail.id)}>
-                          {detail.producto?.nombre ?? `Producto #${detail.productoId}`} • {detail.cantidad} • {formatCRC(detailSubtotal)}
-                        </MenuItem>
-                      )
-                    })}
-                  </TextField>
+                  <Paper sx={{ p: 1.25, width: '100%', backgroundColor: 'rgba(0,0,0,0.2)' }}>
+                    <Stack spacing={1}>
+                      <Typography sx={{ color: COLOR_TEXT, fontWeight: 700 }}>Selecciona productos para dividir</Typography>
+                      {details.map((detail) => {
+                        const detailSubtotal = detail.subtotal ?? detail.precioUnitario * detail.cantidad
+                        const selected = splitSelectionByDetail[detail.id] ?? { checked: false, cantidad: '' }
+                        return (
+                          <Stack key={detail.id} direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ alignItems: { md: 'center' } }}>
+                            <FormControlLabel
+                              sx={{ flex: 1, m: 0 }}
+                              control={
+                                <Checkbox
+                                  checked={selected.checked}
+                                  onChange={(event) =>
+                                    setSplitSelectionByDetail((current) => ({
+                                      ...current,
+                                      [detail.id]: {
+                                        checked: event.target.checked,
+                                        cantidad: current[detail.id]?.cantidad ?? '',
+                                      },
+                                    }))
+                                  }
+                                  sx={{ color: COLOR_GOLD, '&.Mui-checked': { color: COLOR_GOLD } }}
+                                />
+                              }
+                              label={
+                                <Typography sx={{ color: COLOR_TEXT }}>
+                                  {detail.producto?.nombre ?? detail.productoNombre ?? 'Producto'} • {detail.cantidad} • {formatCRC(detailSubtotal)}
+                                </Typography>
+                              }
+                            />
 
-                  <TextField
-                    label="Cantidad a mover"
-                    type="number"
-                    value={splitQuantity}
-                    onChange={(event) => setSplitQuantity(event.target.value)}
-                    helperText="Vacío = mover todo el detalle"
-                    sx={{
-                      minWidth: { md: 190 },
-                      '& .MuiFormHelperText-root': { color: COLOR_MUTED },
-                      '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
-                      '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
-                    }}
-                  />
+                            <TextField
+                              label="Cantidad"
+                              type="number"
+                              value={selected.cantidad}
+                              onChange={(event) =>
+                                setSplitSelectionByDetail((current) => ({
+                                  ...current,
+                                  [detail.id]: {
+                                    checked: current[detail.id]?.checked ?? false,
+                                    cantidad: event.target.value,
+                                  },
+                                }))
+                              }
+                              helperText="Vacío = todo"
+                              sx={{
+                                width: { xs: '100%', md: 140 },
+                                '& .MuiFormHelperText-root': { color: COLOR_MUTED },
+                                '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                                '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                              }}
+                            />
+                          </Stack>
+                        )
+                      })}
+                    </Stack>
+                  </Paper>
+                </Stack>
 
+                <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
                   <Button
                     variant="outlined"
                     onClick={() => void handleAssignDetailToAccount()}
-                    disabled={saving || !selectedAccountId}
+                    disabled={
+                      saving ||
+                      !selectedAccountId ||
+                      Object.values(splitSelectionByDetail).every((entry) => !entry.checked)
+                    }
                     sx={{ color: COLOR_TEXT, borderColor: 'rgba(243,233,210,0.35)' }}
                   >
-                    Asignar
+                    Mover seleccion a cuenta
+                  </Button>
+                  <Button
+                    variant="text"
+                    onClick={() => clearSplitSelection()}
+                    disabled={saving}
+                    sx={{ color: COLOR_MUTED }}
+                  >
+                    Limpiar seleccion
                   </Button>
                 </Stack>
 
@@ -1349,7 +1614,7 @@ export default function FacturacionModal({
                         {(account.detalles ?? []).map((detail) => {
                           const detailId = detail.detailId ?? detail.pedidoDetalleId
                           const source = detailId ? detailsById.get(detailId) : null
-                          const label = source?.producto?.nombre ?? detail.productoNombre ?? `Detalle #${detail.id}`
+                          const label = source?.producto?.nombre ?? source?.productoNombre ?? detail.productoNombre ?? 'Producto'
                           const amount = detail.subtotal ?? source?.subtotal ?? 0
                           const rowKey = getDetailMoveKey(account.id, detail.id)
 
@@ -1435,7 +1700,13 @@ export default function FacturacionModal({
               <Stack spacing={1.5}>
                 <Typography sx={{ color: COLOR_GOLD, fontWeight: 800 }}>Facturación por cuenta</Typography>
 
-                {billingScopes.map((scope) => {
+                <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
+                  <Chip label={`Cuentas pendientes: ${openBillingScopes.length}`} sx={{ color: COLOR_TEXT }} />
+                  <Chip label={`Cuentas pagadas: ${closedBillingScopes.length}`} sx={{ color: COLOR_TEXT }} />
+                  <Chip label={`Saldo pendiente total: ${formatCRC(pendingAcrossAccountsCRC)}`} sx={{ color: COLOR_TEXT }} />
+                </Stack>
+
+                {[...openBillingScopes, ...closedBillingScopes].map((scope) => {
                   const scopeAmounts = getScopeAmounts(scope.accountId)
                   const selectedCurrency = getScopeCurrency(scope.key)
                   const receivedRaw = receivedByScope[scope.key] ?? ''
@@ -1451,9 +1722,40 @@ export default function FacturacionModal({
                   const hasProducts = scope.accountId ? accountDetails.length > 0 : unassignedDetails.length > 0
 
                   return (
-                    <Paper key={scope.key} sx={{ p: 1.5, backgroundColor: 'rgba(0,0,0,0.25)', border: '1px solid rgba(212,175,55,0.2)' }}>
+                    <Paper
+                      key={scope.key}
+                      sx={{
+                        p: 1.5,
+                        backgroundColor: scopeAmounts.isClosed ? 'rgba(29,66,41,0.22)' : 'rgba(0,0,0,0.25)',
+                        border: scopeAmounts.isClosed
+                          ? '1px solid rgba(130,220,167,0.45)'
+                          : '1px solid rgba(212,175,55,0.2)',
+                      }}
+                    >
                       <Stack spacing={1.25}>
-                        <Typography sx={{ color: COLOR_GOLD, fontWeight: 700 }}>{scope.title}</Typography>
+                        <Stack direction="row" spacing={1} sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                            <Typography sx={{ color: COLOR_GOLD, fontWeight: 700 }}>{scope.title}</Typography>
+                            <Chip
+                              size="small"
+                              label={scopeAmounts.isClosed ? 'PAGADA' : 'PENDIENTE'}
+                              sx={{
+                                color: scopeAmounts.isClosed ? '#c7f5d9' : '#fff1c1',
+                                border: scopeAmounts.isClosed
+                                  ? '1px solid rgba(130,220,167,0.45)'
+                                  : '1px solid rgba(212,175,55,0.35)',
+                              }}
+                            />
+                          </Stack>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => handlePrintScope(scope.accountId, scope.title)}
+                            sx={{ color: COLOR_GOLD, borderColor: 'rgba(212,175,55,0.35)' }}
+                          >
+                            Imprimir cuenta
+                          </Button>
+                        </Stack>
 
                         {hasProducts ? (
                           <Stack spacing={0.5}>
@@ -1461,7 +1763,7 @@ export default function FacturacionModal({
                               ? accountDetails.map((detail) => {
                                   const detailId = detail.detailId ?? detail.pedidoDetalleId
                                   const source = detailId ? detailsById.get(detailId) : null
-                                  const label = source?.producto?.nombre ?? detail.productoNombre ?? `Detalle #${detail.id}`
+                                  const label = source?.producto?.nombre ?? source?.productoNombre ?? detail.productoNombre ?? 'Producto'
                                   const quantity = Number(detail.cantidad ?? source?.cantidad ?? 0)
                                   const amount = Number(detail.subtotal ?? source?.subtotal ?? quantity * Number(detail.precioUnitario ?? source?.precioUnitario ?? 0))
                                   return (
@@ -1488,9 +1790,12 @@ export default function FacturacionModal({
                           <Chip label={`Total CRC: ${formatCRC(scopeAmounts.totalCRC)}`} sx={{ color: COLOR_TEXT }} />
                           <Chip label={`Pagado CRC: ${formatCRC(scopeAmounts.paidCRC)}`} sx={{ color: COLOR_TEXT }} />
                           <Chip label={`Pendiente CRC: ${formatCRC(scopeAmounts.pendingCRC)}`} sx={{ color: COLOR_TEXT }} />
+                          {scopeAmounts.isClosed ? (
+                            <Chip label="Cuenta pagada" sx={{ color: '#c7f5d9', border: '1px solid rgba(130,220,167,0.45)' }} />
+                          ) : null}
                         </Stack>
 
-                        <FormControl>
+                        <FormControl disabled={scopeAmounts.isClosed}>
                           <FormLabel sx={{ color: COLOR_TEXT }}>Método de pago</FormLabel>
                           <RadioGroup
                             row
@@ -1505,7 +1810,7 @@ export default function FacturacionModal({
                           </RadioGroup>
                         </FormControl>
 
-                        <FormControl>
+                        <FormControl disabled={scopeAmounts.isClosed}>
                           <FormLabel sx={{ color: COLOR_TEXT }}>Moneda</FormLabel>
                           <RadioGroup
                             row
@@ -1526,7 +1831,7 @@ export default function FacturacionModal({
                         </FormControl>
 
                         {isMesaOrder ? (
-                          <FormControl>
+                          <FormControl disabled={scopeAmounts.isClosed}>
                             <FormLabel sx={{ color: COLOR_TEXT }}>Servicio</FormLabel>
                             <RadioGroup
                               row
@@ -1546,6 +1851,7 @@ export default function FacturacionModal({
                             label={`Monto recibido (${selectedCurrency})`}
                             type="number"
                             value={receivedByScope[scope.key] ?? ''}
+                            disabled={scopeAmounts.isClosed}
                             onChange={(event) =>
                               setReceivedByScope((current) => ({ ...current, [scope.key]: event.target.value }))
                             }
@@ -1558,6 +1864,7 @@ export default function FacturacionModal({
                           <TextField
                             label="Referencia"
                             value={referenceByScope[scope.key] ?? ''}
+                            disabled={scopeAmounts.isClosed}
                             onChange={(event) =>
                               setReferenceByScope((current) => ({ ...current, [scope.key]: event.target.value }))
                             }
@@ -1584,11 +1891,22 @@ export default function FacturacionModal({
                         <Button
                           variant="contained"
                           onClick={() => void handleSavePaymentForScope(scope.accountId)}
-                          disabled={saving || !pedido || scopeAmounts.pendingCRC <= 0}
+                          disabled={
+                            saving ||
+                            !pedido ||
+                            scopeAmounts.isClosed ||
+                            scopeAmounts.pendingCRC <= 0 ||
+                            (accounts.length > 0 && !scope.accountId)
+                          }
                           sx={{ backgroundColor: '#8F1D2E', '&:hover': { backgroundColor: '#a42d3e' } }}
                         >
                           Registrar pago de esta cuenta
                         </Button>
+                        {accounts.length > 0 && !scope.accountId ? (
+                          <Typography sx={{ color: COLOR_MUTED, fontSize: '0.8rem' }}>
+                            Cuando hay cuentas divididas, debes cobrar indicando cuentaPedidoId (cuenta específica).
+                          </Typography>
+                        ) : null}
                       </Stack>
                     </Paper>
                   )

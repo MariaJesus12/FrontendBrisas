@@ -27,6 +27,12 @@ import type { MetodoPago, PagoPedido, Pedido, PedidoAccount, PedidoAccountDetail
 const COLOR_GOLD = '#D4AF37'
 const COLOR_TEXT = '#F3E9D2'
 const COLOR_MUTED = 'rgba(243,233,210,0.72)'
+const MONEY_EPSILON = 0.01
+const PAID_ACCOUNT_STATUSES = new Set(['PAGADA', 'PAGADO', 'CERRADA', 'CERRADO', 'FACTURADA', 'FACTURADO'])
+
+function isPaidAccountStatus(status: unknown): boolean {
+  return PAID_ACCOUNT_STATUSES.has(String(status ?? '').trim().toUpperCase())
+}
 
 function toPositiveInt(value: unknown): number | null {
   const parsed = Number(value)
@@ -86,6 +92,18 @@ function formatUSD(value: number): string {
   }).format(value)
 }
 
+function resolveMonedaId(currency: 'CRC' | 'USD'): number {
+  return currency === 'USD' ? 2 : 1
+}
+
+function roundMoney(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0
+  }
+
+  return Math.round(value * 10000) / 10000
+}
+
 function normalizePedidoDetail(item: unknown): PedidoDetalle | null {
   if (typeof item !== 'object' || item === null) {
     return null
@@ -96,6 +114,22 @@ function normalizePedidoDetail(item: unknown): PedidoDetalle | null {
   const productoId = Number(record.productoId ?? record.product_id ?? record.producto_id ?? 0)
   const cantidad = Number(record.cantidad ?? record.qty ?? 0)
   const precioUnitario = Number(record.precioUnitario ?? record.precio_unitario ?? record.price ?? 0)
+  const productoRecord =
+    typeof record.producto === 'object' && record.producto !== null
+      ? (record.producto as Record<string, unknown>)
+      : null
+  const productoNombre =
+    typeof record.productoNombre === 'string'
+      ? record.productoNombre
+      : typeof record.nombreProducto === 'string'
+        ? record.nombreProducto
+        : typeof record.product_name === 'string'
+          ? record.product_name
+          : typeof record.productName === 'string'
+            ? record.productName
+            : typeof productoRecord?.nombre === 'string'
+              ? productoRecord.nombre
+              : undefined
 
   if (!Number.isFinite(id) || id <= 0 || !Number.isFinite(productoId) || productoId <= 0) {
     return null
@@ -104,10 +138,8 @@ function normalizePedidoDetail(item: unknown): PedidoDetalle | null {
   return {
     id,
     productoId,
-    producto:
-      typeof record.producto === 'object' && record.producto !== null
-        ? (record.producto as PedidoDetalle['producto'])
-        : undefined,
+    productoNombre,
+    producto: productoRecord ? ({ ...(productoRecord as PedidoDetalle['producto']), nombre: productoNombre ?? String(productoRecord.nombre ?? '') } as PedidoDetalle['producto']) : productoNombre ? { nombre: productoNombre } : undefined,
     cantidad: Number.isFinite(cantidad) ? cantidad : 0,
     precioUnitario: Number.isFinite(precioUnitario) ? precioUnitario : 0,
     observacion: typeof record.observacion === 'string' ? record.observacion : undefined,
@@ -156,12 +188,21 @@ function normalizeAccount(item: unknown): PedidoAccount | null {
   }
 
   const record = item as Record<string, unknown>
-  const id = Number(record.id ?? record.accountId ?? record.account_id ?? 0)
+  const id = Number(record.id ?? record.accountId ?? record.account_id ?? record.cuentaId ?? record.cuenta_id ?? 0)
   if (!Number.isFinite(id) || id <= 0) {
     return null
   }
 
-  const rawDetalles = record.detalles ?? record.details ?? []
+  const rawDetalles =
+    record.detalles ??
+    record.details ??
+    record.accountDetails ??
+    record.account_details ??
+    record.pedidoCuentaDetalles ??
+    record.pedido_cuenta_detalles ??
+    record.detallesCuenta ??
+    record.items ??
+    []
   const detalles = Array.isArray(rawDetalles)
     ? rawDetalles.map((detail) => normalizeAccountDetail(detail)).filter((detail): detail is PedidoAccountDetail => detail !== null)
     : []
@@ -172,13 +213,17 @@ function normalizeAccount(item: unknown): PedidoAccount | null {
 
   return {
     id,
+    numeroCuenta: toPositiveInt(record.numeroCuenta ?? record.numero_cuenta ?? record.numero) ?? undefined,
     nombre: typeof record.nombre === 'string' ? record.nombre : undefined,
     numero: typeof record.numero === 'string' ? record.numero : undefined,
     activo: Boolean(record.activo ?? true),
+    estado: typeof record.estado === 'string' ? record.estado : typeof record.status === 'string' ? record.status : undefined,
     detalles,
-    subtotal: Number.isFinite(subtotal) ? subtotal : undefined,
-    servicio: Number.isFinite(servicio) ? servicio : undefined,
-    total: Number.isFinite(total) ? total : undefined,
+    subtotal: Number.isFinite(subtotal) ? subtotal : Number(record.sub_total ?? 0) || undefined,
+    servicio: Number.isFinite(servicio) ? servicio : Number(record.impuesto ?? 0) || undefined,
+    total: Number.isFinite(total) ? total : Number(record.total_cuenta ?? 0) || undefined,
+    totalPagado: Number(record.totalPagado ?? record.total_pagado ?? record.pagado ?? 0) || undefined,
+    saldoPendiente: Number(record.saldoPendiente ?? record.saldo_pendiente ?? record.pendiente ?? 0) || undefined,
   }
 }
 
@@ -281,7 +326,15 @@ function normalizePago(item: unknown): PagoPedido | null {
     vuelto: Number(record.vuelto ?? 0) || undefined,
     vueltoColones: Number(record.vueltoColones ?? record.vuelto_colones ?? 0) || undefined,
     tipoCambioId: toPositiveInt(record.tipoCambioId ?? record.tipo_cambio_id) ?? undefined,
-    accountId: toPositiveInt(record.accountId ?? record.account_id) ?? undefined,
+    accountId:
+      toPositiveInt(
+        record.accountId ??
+          record.account_id ??
+          record.cuentaId ??
+          record.cuenta_id ??
+          record.cuentaPedidoId ??
+          record.cuenta_pedido_id,
+      ) ?? undefined,
     referencia: typeof record.referencia === 'string' ? record.referencia : undefined,
     createdAt: typeof record.createdAt === 'string' ? record.createdAt : undefined,
     updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : undefined,
@@ -295,7 +348,19 @@ function unwrapArrayPayload<T>(payload: unknown, normalizer: (item: unknown) => 
 
   if (typeof payload === 'object' && payload !== null) {
     const record = payload as Record<string, unknown>
-    const keys = ['data', 'items', 'results', 'accounts', 'payments', 'methods', 'details']
+    const keys = [
+      'data',
+      'items',
+      'results',
+      'accounts',
+      'cuentas',
+      'pedidoAccounts',
+      'pedido_accounts',
+      'payments',
+      'methods',
+      'details',
+      'detalles',
+    ]
 
     for (const key of keys) {
       const value = record[key]
@@ -489,31 +554,124 @@ export default function FacturacionPage() {
     }
   }
 
-  const selectedDetails = useMemo(() => {
-    if (!selectedAccount) {
-      return details
-    }
-
-    const mapped = (selectedAccount.detalles ?? [])
-      .map((item) => {
-        const detailId = item.detailId ?? item.pedidoDetalleId
-        if (!detailId) {
-          return null
-        }
-
-        return detailsById.get(detailId) ?? null
-      })
-      .filter((item): item is PedidoDetalle => item !== null)
-
-    return mapped
-  }, [details, detailsById, selectedAccount])
-
-  const subtotal = useMemo(() => {
-    return selectedDetails.reduce((sum, detail) => {
+  const orderSubtotal = useMemo(() => {
+    return details.reduce((sum, detail) => {
       const lineSubtotal = Number(detail.subtotal ?? detail.precioUnitario * detail.cantidad)
       return sum + (Number.isFinite(lineSubtotal) ? lineSubtotal : 0)
     }, 0)
-  }, [selectedDetails])
+  }, [details])
+
+  function getAccountSubtotal(account: PedidoAccount): number {
+    const directSubtotal = Number(account.subtotal)
+    if (Number.isFinite(directSubtotal) && directSubtotal > 0) {
+      return directSubtotal
+    }
+
+    return (account.detalles ?? []).reduce((sum, item) => {
+      const itemSubtotal = Number(item.subtotal)
+      if (Number.isFinite(itemSubtotal) && itemSubtotal > 0) {
+        return sum + itemSubtotal
+      }
+
+      const detailId = item.detailId ?? item.pedidoDetalleId
+      const source = detailId ? detailsById.get(detailId) : null
+      if (source) {
+        const sourceSubtotal = Number(source.subtotal ?? source.precioUnitario * source.cantidad)
+        if (Number.isFinite(sourceSubtotal) && sourceSubtotal > 0) {
+          return sum + sourceSubtotal
+        }
+      }
+
+      const fallbackSubtotal = Number(item.precioUnitario ?? 0) * Number(item.cantidad ?? 0)
+      return Number.isFinite(fallbackSubtotal) && fallbackSubtotal > 0 ? sum + fallbackSubtotal : sum
+    }, 0)
+  }
+
+  const accountSubtotalById = useMemo(() => {
+    const map = new Map<number, number>()
+    for (const account of accounts) {
+      map.set(account.id, roundMoney(getAccountSubtotal(account)))
+    }
+
+    return map
+  }, [accounts, detailsById])
+
+  const assignedSubtotal = useMemo(() => {
+    return accounts.reduce((sum, account) => sum + (accountSubtotalById.get(account.id) ?? 0), 0)
+  }, [accountSubtotalById, accounts])
+
+  const assignedQuantityByDetailId = useMemo(() => {
+    const map = new Map<number, number>()
+
+    for (const account of accounts) {
+      for (const accountDetail of account.detalles ?? []) {
+        const detailId = accountDetail.detailId ?? accountDetail.pedidoDetalleId
+        if (!detailId) {
+          continue
+        }
+
+        const quantity = Number(accountDetail.cantidad ?? 0)
+        if (!Number.isFinite(quantity) || quantity <= 0) {
+          continue
+        }
+
+        map.set(detailId, (map.get(detailId) ?? 0) + quantity)
+      }
+    }
+
+    return map
+  }, [accounts])
+
+  const assignedDetailIds = useMemo(() => {
+    const ids = new Set<number>()
+
+    for (const account of accounts) {
+      for (const accountDetail of account.detalles ?? []) {
+        const detailId = toPositiveInt(accountDetail.detailId ?? accountDetail.pedidoDetalleId)
+        if (detailId) {
+          ids.add(detailId)
+        }
+      }
+    }
+
+    return ids
+  }, [accounts])
+
+  const unassignedSubtotal = useMemo(() => {
+    if (accounts.length === 0) {
+      return roundMoney(orderSubtotal)
+    }
+
+    const computed = details.reduce((sum, detail) => {
+      const detailQty = Number(detail.cantidad ?? 0)
+      const unitPrice = Number(detail.precioUnitario ?? 0)
+      const assignedQty = assignedQuantityByDetailId.get(detail.id) ?? 0
+      const hasQuantityAssignment = assignedQty > 0
+      const assignedByReference = assignedDetailIds.has(detail.id)
+      const remainingQty = Number.isFinite(detailQty)
+        ? hasQuantityAssignment
+          ? Math.max(detailQty - assignedQty, 0)
+          : assignedByReference
+            ? 0
+            : detailQty
+        : 0
+      return sum + (remainingQty > 0 ? remainingQty * unitPrice : 0)
+    }, 0)
+
+    if (computed > 0) {
+      return roundMoney(computed)
+    }
+
+    return roundMoney(Math.max(orderSubtotal - assignedSubtotal, 0))
+  }, [accounts.length, assignedDetailIds, assignedQuantityByDetailId, assignedSubtotal, details, orderSubtotal])
+
+  const subtotal = useMemo(() => {
+    if (!selectedAccount) {
+      return unassignedSubtotal
+    }
+
+    return roundMoney(accountSubtotalById.get(selectedAccount.id) ?? 0)
+  }, [accountSubtotalById, selectedAccount, unassignedSubtotal])
 
   const serviceRate = useMemo(() => {
     if (!pedido || String(pedido.tipo).toUpperCase() !== 'MESA') {
@@ -521,12 +679,12 @@ export default function FacturacionPage() {
     }
 
     const pedidoImpuesto = Number(pedido.impuesto ?? 0)
-    if (Number.isFinite(pedidoImpuesto) && pedidoImpuesto > 0 && subtotal > 0) {
-      return pedidoImpuesto / subtotal
+    if (Number.isFinite(pedidoImpuesto) && pedidoImpuesto > 0 && orderSubtotal > 0) {
+      return pedidoImpuesto / orderSubtotal
     }
 
     return 0.1
-  }, [pedido, subtotal])
+  }, [orderSubtotal, pedido])
 
   const serviceAmount = useMemo(() => {
     if (!pedido || String(pedido.tipo).toUpperCase() !== 'MESA') {
@@ -549,9 +707,111 @@ export default function FacturacionPage() {
 
   const totalUSD = useMemo(() => (exchangeRate > 0 ? totalCRC / exchangeRate : 0), [exchangeRate, totalCRC])
 
+  const selectedScopePaidCRC = useMemo(() => {
+    const selectedAccountNumeric = toPositiveInt(selectedAccountId)
+
+    return payments.reduce((sum, payment) => {
+      const paymentAccountId = toPositiveInt(payment.accountId ?? null)
+      const isSameScope = selectedAccountNumeric ? paymentAccountId === selectedAccountNumeric : paymentAccountId === null
+      if (!isSameScope) {
+        return sum
+      }
+
+      if (editingPaymentId && payment.id === editingPaymentId) {
+        return sum
+      }
+
+      const amountCRC = Number(payment.montoColones ?? 0)
+      if (Number.isFinite(amountCRC) && amountCRC > 0) {
+        return sum + amountCRC
+      }
+
+      const amount = Number(payment.monto ?? 0)
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return sum
+      }
+
+      const currency = String(payment.moneda ?? 'CRC').toUpperCase()
+      if (currency === 'USD') {
+        return sum + amount * exchangeRate
+      }
+
+      return sum + amount
+    }, 0)
+  }, [editingPaymentId, exchangeRate, payments, selectedAccountId])
+
+  const selectedScopePendingCRC = useMemo(() => {
+    return Math.max(totalCRC - selectedScopePaidCRC, 0)
+  }, [selectedScopePaidCRC, totalCRC])
+
+  const selectedScopeIsClosed = useMemo(() => {
+    if (!selectedAccount) {
+      return selectedScopePendingCRC <= MONEY_EPSILON
+    }
+
+    return isPaidAccountStatus(selectedAccount.estado) || selectedScopePendingCRC <= MONEY_EPSILON
+  }, [selectedAccount, selectedScopePendingCRC])
+
+  const strictScopePendingCRC = useMemo(() => {
+    return selectedScopeIsClosed ? 0 : roundMoney(selectedScopePendingCRC)
+  }, [selectedScopeIsClosed, selectedScopePendingCRC])
+
+  const paidByAccountId = useMemo(() => {
+    const map = new Map<number, number>()
+
+    for (const payment of payments) {
+      const accountId = toPositiveInt(payment.accountId ?? null)
+      if (!accountId) {
+        continue
+      }
+
+      const amountCRC = Number(payment.montoColones ?? 0)
+      let amount = 0
+
+      if (Number.isFinite(amountCRC) && amountCRC > 0) {
+        amount = amountCRC
+      } else {
+        const rawAmount = Number(payment.monto ?? 0)
+        if (!Number.isFinite(rawAmount) || rawAmount <= 0) {
+          continue
+        }
+
+        const currency = String(payment.moneda ?? 'CRC').toUpperCase()
+        amount = currency === 'USD' ? rawAmount * exchangeRate : rawAmount
+      }
+
+      map.set(accountId, (map.get(accountId) ?? 0) + amount)
+    }
+
+    return map
+  }, [exchangeRate, payments])
+
+  const accountPendingById = useMemo(() => {
+    const isMesaOrder = String(pedido?.tipo ?? '').toUpperCase() === 'MESA'
+    const map = new Map<number, number>()
+
+    for (const account of accounts) {
+      const subtotal = Number(accountSubtotalById.get(account.id) ?? 0)
+      const total = roundMoney(subtotal + (isMesaOrder ? subtotal * serviceRate : 0))
+      const paid = roundMoney(Number(paidByAccountId.get(account.id) ?? 0))
+      const computedPending = roundMoney(Math.max(total - paid, 0))
+      const backendPendingRaw = Number(account.saldoPendiente ?? NaN)
+      const hasBackendPending = Number.isFinite(backendPendingRaw) && backendPendingRaw >= 0
+      const backendPending = hasBackendPending ? roundMoney(Math.max(backendPendingRaw, 0)) : null
+      const pending = isPaidAccountStatus(account.estado)
+        ? 0
+        : backendPending !== null
+          ? backendPending
+          : computedPending
+      map.set(account.id, pending)
+    }
+
+    return map
+  }, [accountSubtotalById, accounts, paidByAccountId, pedido?.tipo, serviceRate])
+
   const dueInSelectedCurrency = useMemo(() => {
-    return selectedCurrency === 'CRC' ? totalCRC : totalUSD
-  }, [selectedCurrency, totalCRC, totalUSD])
+    return selectedCurrency === 'CRC' ? strictScopePendingCRC : (exchangeRate > 0 ? strictScopePendingCRC / exchangeRate : 0)
+  }, [exchangeRate, selectedCurrency, strictScopePendingCRC])
 
   const receivedNumeric = Number(receivedAmount)
   const receivedValue = Number.isFinite(receivedNumeric) ? receivedNumeric : 0
@@ -560,7 +820,7 @@ export default function FacturacionPage() {
     return selectedCurrency === 'CRC' ? receivedValue : receivedValue * exchangeRate
   }, [exchangeRate, receivedValue, selectedCurrency])
 
-  const changeCRC = useMemo(() => Math.max(0, receivedInCRC - totalCRC), [receivedInCRC, totalCRC])
+  const changeCRC = useMemo(() => Math.max(0, receivedInCRC - strictScopePendingCRC), [receivedInCRC, strictScopePendingCRC])
   const changeInSelectedCurrency = useMemo(() => {
     return selectedCurrency === 'CRC' ? changeCRC : changeCRC / exchangeRate
   }, [changeCRC, exchangeRate, selectedCurrency])
@@ -668,29 +928,59 @@ export default function FacturacionPage() {
       return
     }
 
-    if (!Number.isFinite(receivedValue) || receivedValue <= 0) {
-      toast.error('Ingresa un monto recibido válido.')
-      return
-    }
-
-    if (receivedValue < dueInSelectedCurrency) {
-      toast.error('El monto recibido no cubre el total a pagar.')
-      return
-    }
-
     const accountId = toPositiveInt(selectedAccountId)
+    if (accounts.length > 0 && !accountId) {
+      toast.error('Debes indicar cuentaPedidoId para evitar cobrar la cuenta equivocada.')
+      return
+    }
+
+    const methodName = String(methods.find((method) => method.id === metodoPagoId)?.nombre ?? '').trim().toUpperCase()
+    const isCashMethod = methodName.includes('EFECTIVO') || methodName.includes('CASH') || methodName.includes('CONTADO')
+
+    if (strictScopePendingCRC <= 0) {
+      toast.info('Esta cuenta ya esta pagada. No se puede cobrar nuevamente.')
+      return
+    }
+
+    if (isCashMethod) {
+      if (!Number.isFinite(receivedValue) || receivedValue <= 0) {
+        toast.error('Ingresa un monto recibido válido para efectivo.')
+        return
+      }
+
+      if (receivedValue < dueInSelectedCurrency) {
+        toast.error('El monto recibido no cubre el total a pagar.')
+        return
+      }
+    }
+
+    const effectiveReceived = isCashMethod ? receivedValue : dueInSelectedCurrency
+    const effectiveReceivedInCRC = selectedCurrency === 'CRC' ? effectiveReceived : effectiveReceived * exchangeRate
+    const effectiveChangeCRC = isCashMethod ? Math.max(0, effectiveReceivedInCRC - strictScopePendingCRC) : 0
+    const effectiveChangeInSelectedCurrency = selectedCurrency === 'CRC' ? effectiveChangeCRC : effectiveChangeCRC / exchangeRate
+    const monedaId = resolveMonedaId(selectedCurrency)
+    const cuentaPedidoId = accountId ?? undefined
 
     const payload = {
       metodoPagoId,
       monto: dueInSelectedCurrency,
+      montoMoneda: dueInSelectedCurrency,
       moneda: selectedCurrency,
-      montoColones: totalCRC,
-      montoRecibido: receivedValue,
-      montoRecibidoColones: receivedInCRC,
-      vuelto: changeInSelectedCurrency,
-      vueltoColones: changeCRC,
+      monedaId,
+      montoColones: strictScopePendingCRC,
+      ...(isCashMethod
+        ? {
+            montoRecibido: effectiveReceived,
+            montoRecibidoMoneda: effectiveReceived,
+            montoRecibidoColones: effectiveReceivedInCRC,
+          }
+        : {}),
+      vuelto: effectiveChangeInSelectedCurrency,
+      vueltoColones: effectiveChangeCRC,
       tipoCambioId: selectedCurrency === 'USD' ? activeTipoCambio?.id : undefined,
-      accountId: accountId ?? undefined,
+      cuentaPedidoId,
+      cuentaId: cuentaPedidoId,
+      accountId: cuentaPedidoId,
       aplicarServicio: String(pedido.tipo).toUpperCase() === 'MESA' ? applyService : false,
       exonerarServicio: String(pedido.tipo).toUpperCase() === 'MESA' ? !applyService : true,
       referencia: paymentReference.trim() || undefined,
@@ -711,11 +1001,12 @@ export default function FacturacionPage() {
       setPaymentReference('')
       await reloadAccountsAndPayments()
     } catch (requestError) {
+      const isBusinessConflict = axios.isAxiosError(requestError) && requestError.response?.status === 409
       const backendMessage =
         axios.isAxiosError(requestError) && requestError.response
           ? extractBackendMessage(requestError.response.data)
           : ''
-      toast.error(backendMessage || 'No fue posible registrar el pago.')
+      toast.error(backendMessage || (isBusinessConflict ? 'Conflicto de negocio al registrar el pago.' : 'No fue posible registrar el pago.'))
     } finally {
       setSaving(false)
     }
@@ -789,6 +1080,8 @@ export default function FacturacionPage() {
               <Chip label={`Servicio: ${formatCRC(serviceAmount)}`} sx={{ color: COLOR_TEXT }} />
               <Chip label={`Total CRC: ${formatCRC(totalCRC)}`} sx={{ color: COLOR_TEXT }} />
               <Chip label={`Total USD: ${formatUSD(totalUSD)}`} sx={{ color: COLOR_TEXT }} />
+              <Chip label={`No asignado: ${formatCRC(unassignedSubtotal)}`} sx={{ color: COLOR_TEXT }} />
+              <Chip label={`Asignado a cuentas: ${formatCRC(assignedSubtotal)}`} sx={{ color: COLOR_TEXT }} />
             </Stack>
             <Typography sx={{ color: COLOR_MUTED, fontSize: '0.86rem' }}>
               Tipo de cambio (venta): {activeTipoCambio ? activeTipoCambio.venta.toFixed(4) : 'No disponible'}
@@ -812,7 +1105,7 @@ export default function FacturacionPage() {
                   '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
                 }}
               >
-                <MenuItem value="">Cuenta completa</MenuItem>
+                <MenuItem value="">Cuenta principal (no asignado)</MenuItem>
                 {accounts.map((account) => (
                   <MenuItem key={account.id} value={String(account.id)}>
                     {account.nombre ?? `Cuenta #${account.id}`}
@@ -852,7 +1145,7 @@ export default function FacturacionPage() {
                   const subtotalDetail = detail.subtotal ?? detail.precioUnitario * detail.cantidad
                   return (
                     <MenuItem key={detail.id} value={String(detail.id)}>
-                      {detail.producto?.nombre ?? `Producto #${detail.productoId}`} • {detail.cantidad} • {formatCRC(subtotalDetail)}
+                      {detail.producto?.nombre ?? detail.productoNombre ?? 'Producto'} • {detail.cantidad} • {formatCRC(subtotalDetail)}
                     </MenuItem>
                   )
                 })}
@@ -869,43 +1162,86 @@ export default function FacturacionPage() {
 
             {accounts.length > 0 ? (
               <Stack spacing={1}>
-                {accounts.map((account) => (
-                  <Paper key={account.id} sx={{ p: 1.25, backgroundColor: 'rgba(0,0,0,0.22)', border: '1px solid rgba(212,175,55,0.12)' }}>
-                    <Typography sx={{ color: COLOR_GOLD, fontWeight: 700, mb: 0.5 }}>
-                      {account.nombre ?? `Cuenta #${account.id}`}
-                    </Typography>
-                    {(account.detalles ?? []).length === 0 ? (
-                      <Typography sx={{ color: COLOR_MUTED, fontSize: '0.86rem' }}>Sin productos asignados.</Typography>
-                    ) : (
-                      <Stack spacing={0.6}>
-                        {(account.detalles ?? []).map((detail) => {
-                          const detailId = detail.detailId ?? detail.pedidoDetalleId
-                          const source = detailId ? detailsById.get(detailId) : null
-                          const lineName = source?.producto?.nombre ?? detail.productoNombre ?? `Detalle #${detail.id}`
-                          const lineSubtotal =
-                            detail.subtotal ??
-                            source?.subtotal ??
-                            ((source?.precioUnitario ?? 0) * (source?.cantidad ?? 0))
+                {[...accounts]
+                  .sort((a, b) => {
+                    const aPending = Number(accountPendingById.get(a.id) ?? 0)
+                    const bPending = Number(accountPendingById.get(b.id) ?? 0)
+                    const aClosed = aPending <= MONEY_EPSILON
+                    const bClosed = bPending <= MONEY_EPSILON
 
-                          return (
-                            <Stack key={detail.id} direction="row" spacing={1} sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
-                              <Typography sx={{ color: COLOR_TEXT, fontSize: '0.9rem' }}>
-                                {lineName} • {formatCRC(Number(lineSubtotal ?? 0))}
-                              </Typography>
-                              <Button
-                                size="small"
-                                onClick={() => void handleRemoveAccountDetail(account.id, detail.id)}
-                                sx={{ color: '#f4a9b4' }}
-                              >
-                                Quitar
-                              </Button>
-                            </Stack>
-                          )
-                        })}
-                      </Stack>
-                    )}
-                  </Paper>
-                ))}
+                    if (aClosed !== bClosed) {
+                      return aClosed ? 1 : -1
+                    }
+
+                    return a.id - b.id
+                  })
+                  .map((account) => {
+                    const accountPending = Number(accountPendingById.get(account.id) ?? 0)
+                    const accountClosed = accountPending <= MONEY_EPSILON
+
+                    return (
+                      <Paper
+                        key={account.id}
+                        sx={{
+                          p: 1.25,
+                          backgroundColor: accountClosed ? 'rgba(29,66,41,0.22)' : 'rgba(0,0,0,0.22)',
+                          border: accountClosed
+                            ? '1px solid rgba(130,220,167,0.45)'
+                            : '1px solid rgba(212,175,55,0.12)',
+                        }}
+                      >
+                        <Stack direction="row" spacing={1} sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                          <Typography sx={{ color: COLOR_GOLD, fontWeight: 700 }}>
+                            {account.nombre ?? `Cuenta #${account.id}`}
+                          </Typography>
+                          <Chip
+                            size="small"
+                            label={accountClosed ? 'PAGADA' : 'PENDIENTE'}
+                            sx={{
+                              color: accountClosed ? '#c7f5d9' : '#fff1c1',
+                              border: accountClosed
+                                ? '1px solid rgba(130,220,167,0.45)'
+                                : '1px solid rgba(212,175,55,0.35)',
+                            }}
+                          />
+                        </Stack>
+                        <Typography sx={{ color: COLOR_MUTED, fontSize: '0.84rem', mb: 0.75 }}>
+                          Subtotal: {formatCRC(accountSubtotalById.get(account.id) ?? 0)} • Pendiente: {formatCRC(accountPending)}
+                        </Typography>
+                        {(account.detalles ?? []).length === 0 ? (
+                          <Typography sx={{ color: COLOR_MUTED, fontSize: '0.86rem' }}>Sin productos asignados.</Typography>
+                        ) : (
+                          <Stack spacing={0.6}>
+                            {(account.detalles ?? []).map((detail) => {
+                              const detailId = detail.detailId ?? detail.pedidoDetalleId
+                              const source = detailId ? detailsById.get(detailId) : null
+                              const lineName = source?.producto?.nombre ?? source?.productoNombre ?? detail.productoNombre ?? 'Producto'
+                              const lineSubtotal =
+                                detail.subtotal ??
+                                source?.subtotal ??
+                                ((source?.precioUnitario ?? 0) * (source?.cantidad ?? 0))
+
+                              return (
+                                <Stack key={detail.id} direction="row" spacing={1} sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <Typography sx={{ color: COLOR_TEXT, fontSize: '0.9rem' }}>
+                                    {lineName} • {formatCRC(Number(lineSubtotal ?? 0))}
+                                  </Typography>
+                                  <Button
+                                    size="small"
+                                    onClick={() => void handleRemoveAccountDetail(account.id, detail.id)}
+                                    sx={{ color: '#f4a9b4' }}
+                                    disabled={accountClosed}
+                                  >
+                                    Quitar
+                                  </Button>
+                                </Stack>
+                              )
+                            })}
+                          </Stack>
+                        )}
+                      </Paper>
+                    )
+                  })}
               </Stack>
             ) : null}
 
@@ -920,7 +1256,7 @@ export default function FacturacionPage() {
                 return (
                   <Stack key={detail.id} direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ justifyContent: 'space-between' }}>
                     <Typography sx={{ color: COLOR_TEXT }}>
-                      {detail.producto?.nombre ?? `Producto #${detail.productoId}`} • {detail.cantidad} • {formatCRC(subtotalDetail)}
+                      {detail.producto?.nombre ?? detail.productoNombre ?? 'Producto'} • {detail.cantidad} • {formatCRC(subtotalDetail)}
                     </Typography>
                     <Typography sx={{ color: COLOR_MUTED, fontSize: '0.86rem' }}>
                       {assigned.length > 0 ? `Asignado a cuentas: ${assigned.join(', ')}` : 'Sin dividir'}
@@ -1007,6 +1343,17 @@ export default function FacturacionPage() {
                 sx={{ color: COLOR_TEXT }}
               />
               <Chip
+                label={selectedScopeIsClosed ? 'Estado: PAGADA' : 'Estado: PENDIENTE'}
+                sx={{
+                  color: selectedScopeIsClosed ? '#c7f5d9' : '#fff1c1',
+                  border: selectedScopeIsClosed
+                    ? '1px solid rgba(130,220,167,0.45)'
+                    : '1px solid rgba(212,175,55,0.35)',
+                }}
+              />
+              <Chip label={`Pagado en esta cuenta: ${formatCRC(selectedScopePaidCRC)}`} sx={{ color: COLOR_TEXT }} />
+              <Chip label={`Pendiente en esta cuenta: ${formatCRC(strictScopePendingCRC)}`} sx={{ color: COLOR_TEXT }} />
+              <Chip
                 label={selectedCurrency === 'CRC' ? `Vuelto: ${formatCRC(changeInSelectedCurrency)}` : `Vuelto: ${formatUSD(changeInSelectedCurrency)}`}
                 sx={{ color: COLOR_TEXT }}
               />
@@ -1027,7 +1374,7 @@ export default function FacturacionPage() {
               </Button>
               <Button
                 variant="contained"
-                disabled={saving}
+                disabled={saving || strictScopePendingCRC <= 0 || (accounts.length > 0 && !selectedAccountId)}
                 onClick={() => void handleSavePayment()}
                 sx={{
                   backgroundColor: '#8F1D2E',
@@ -1037,6 +1384,11 @@ export default function FacturacionPage() {
                 {editingPaymentId ? 'Actualizar pago' : 'Registrar pago'}
               </Button>
             </Stack>
+            {accounts.length > 0 && !selectedAccountId ? (
+              <Typography sx={{ color: COLOR_MUTED, fontSize: '0.82rem' }}>
+                Cuando hay cuentas divididas, selecciona una cuenta para enviar cuentaPedidoId en el pago.
+              </Typography>
+            ) : null}
           </Stack>
         </Paper>
 

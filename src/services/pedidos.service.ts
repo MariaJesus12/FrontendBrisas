@@ -21,9 +21,18 @@ function normalizeSplitItems(data: {
   items?: PedidoAccountSplitItemDto[]
   detailIds?: number[]
   detalleIds?: number[]
-  detalles?: Array<{ detailId?: number; detalleId?: number; cantidad?: number; quantity?: number; qty?: number }>
+  detalles?: Array<{
+    detailId?: number
+    detalleId?: number
+    productoId?: number
+    producto_id?: number
+    cantidad?: number
+    quantity?: number
+    qty?: number
+  }>
   detailId?: number
   pedidoDetalleId?: number
+  productoId?: number
   cantidad?: number
 }): PedidoAccountSplitItemDto[] {
   const result: PedidoAccountSplitItemDto[] = []
@@ -31,12 +40,19 @@ function normalizeSplitItems(data: {
   const fromItems = Array.isArray(data.items) ? data.items : []
   for (const item of fromItems) {
     const detailId = Number(item.detailId)
-    if (!Number.isFinite(detailId) || detailId <= 0) {
+    const productoId = Number(item.productoId)
+    const safeDetailId = Number.isFinite(detailId) && detailId > 0 ? detailId : undefined
+    const safeProductoId = Number.isFinite(productoId) && productoId > 0 ? productoId : undefined
+    if (!safeDetailId && !safeProductoId) {
       continue
     }
 
     const cantidad = Number(item.cantidad)
-    result.push({ detailId, cantidad: Number.isFinite(cantidad) && cantidad > 0 ? cantidad : undefined })
+    result.push({
+      detailId: safeDetailId,
+      productoId: safeProductoId,
+      cantidad: Number.isFinite(cantidad) && cantidad > 0 ? cantidad : undefined,
+    })
   }
 
   const fromDetailIds = Array.isArray(data.detailIds) ? data.detailIds : []
@@ -58,25 +74,44 @@ function normalizeSplitItems(data: {
   const fromDetalles = Array.isArray(data.detalles) ? data.detalles : []
   for (const item of fromDetalles) {
     const detailId = Number(item.detailId ?? item.detalleId ?? 0)
-    if (!Number.isFinite(detailId) || detailId <= 0) {
+    const productoId = Number(item.productoId ?? item.producto_id ?? 0)
+    const safeDetailId = Number.isFinite(detailId) && detailId > 0 ? detailId : undefined
+    const safeProductoId = Number.isFinite(productoId) && productoId > 0 ? productoId : undefined
+    if (!safeDetailId && !safeProductoId) {
       continue
     }
 
     const cantidad = Number(item.cantidad ?? item.quantity ?? item.qty)
-    result.push({ detailId, cantidad: Number.isFinite(cantidad) && cantidad > 0 ? cantidad : undefined })
+    result.push({
+      detailId: safeDetailId,
+      productoId: safeProductoId,
+      cantidad: Number.isFinite(cantidad) && cantidad > 0 ? cantidad : undefined,
+    })
   }
 
   const singleDetailId = Number(data.detailId ?? data.pedidoDetalleId ?? 0)
-  if (Number.isFinite(singleDetailId) && singleDetailId > 0) {
+  const singleProductoId = Number(data.productoId ?? 0)
+  const safeSingleDetailId = Number.isFinite(singleDetailId) && singleDetailId > 0 ? singleDetailId : undefined
+  const safeSingleProductoId = Number.isFinite(singleProductoId) && singleProductoId > 0 ? singleProductoId : undefined
+  if (safeSingleDetailId || safeSingleProductoId) {
     const cantidad = Number(data.cantidad)
-    result.push({ detailId: singleDetailId, cantidad: Number.isFinite(cantidad) && cantidad > 0 ? cantidad : undefined })
+    result.push({
+      detailId: safeSingleDetailId,
+      productoId: safeSingleProductoId,
+      cantidad: Number.isFinite(cantidad) && cantidad > 0 ? cantidad : undefined,
+    })
   }
 
-  const deduped = new Map<number, PedidoAccountSplitItemDto>()
+  const deduped = new Map<string, PedidoAccountSplitItemDto>()
   for (const item of result) {
-    const existing = deduped.get(item.detailId)
+    const key = item.detailId ? `d:${item.detailId}` : item.productoId ? `p:${item.productoId}` : ''
+    if (!key) {
+      continue
+    }
+
+    const existing = deduped.get(key)
     if (!existing || (item.cantidad && !existing.cantidad)) {
-      deduped.set(item.detailId, item)
+      deduped.set(key, item)
     }
   }
 
@@ -84,10 +119,15 @@ function normalizeSplitItems(data: {
 }
 
 function buildSplitPayloadVariants(items: PedidoAccountSplitItemDto[]) {
-  const detailIds = items.map((item) => item.detailId)
+  if (items.length === 0) {
+    return []
+  }
+
+  const detailIds = items.map((item) => item.detailId).filter((item): item is number => Number.isFinite(Number(item)) && Number(item) > 0)
 
   const itemsPayload = items.map((item) => ({
     detailId: item.detailId,
+    productoId: item.productoId,
     cantidad: item.cantidad,
   }))
 
@@ -98,6 +138,7 @@ function buildSplitPayloadVariants(items: PedidoAccountSplitItemDto[]) {
 
   const snakeItemsPayload = items.map((item) => ({
     detail_id: item.detailId,
+    producto_id: item.productoId,
     cantidad: item.cantidad,
   }))
 
@@ -105,9 +146,12 @@ function buildSplitPayloadVariants(items: PedidoAccountSplitItemDto[]) {
     { items: itemsPayload },
     { detalles: detallesPayload },
     { items: snakeItemsPayload },
-    { detailIds },
-    { detalleIds: detailIds },
   ]
+
+  if (detailIds.length > 0) {
+    variants.push({ detailIds })
+    variants.push({ detalleIds: detailIds })
+  }
 
   return variants
 }
@@ -152,15 +196,18 @@ function buildAddAccountDetailVariants(data: AddPedidoAccountDetailDto) {
         {
           detailId: firstItem.detailId,
           pedidoDetalleId: firstItem.detailId,
+          productoId: firstItem.productoId,
           cantidad: firstItem.cantidad,
         },
         {
           detail_id: firstItem.detailId,
           pedido_detalle_id: firstItem.detailId,
+          producto_id: firstItem.productoId,
           cantidad: firstItem.cantidad,
         },
         {
           detalleId: firstItem.detailId,
+          productoId: firstItem.productoId,
           quantity: firstItem.cantidad,
         },
       ]
@@ -187,19 +234,25 @@ function buildAddAccountDetailVariants(data: AddPedidoAccountDetailDto) {
 }
 
 function buildPaymentPayloadVariants(data: CreatePagoPedidoDto) {
+  const accountScopeId = data.cuentaPedidoId ?? data.cuentaId ?? data.accountId
+
   return [
     {
       metodoPagoId: data.metodoPagoId,
       monto: data.monto,
+      montoMoneda: data.montoMoneda,
       moneda: data.moneda,
       monedaId: data.monedaId,
       montoColones: data.montoColones,
       montoRecibido: data.montoRecibido,
+      montoRecibidoMoneda: data.montoRecibidoMoneda,
       montoRecibidoColones: data.montoRecibidoColones,
       vuelto: data.vuelto,
       vueltoColones: data.vueltoColones,
       tipoCambioId: data.tipoCambioId,
-      accountId: data.accountId,
+      cuentaPedidoId: accountScopeId,
+      cuentaId: accountScopeId,
+      accountId: accountScopeId,
       aplicarServicio: data.aplicarServicio,
       exonerarServicio: data.exonerarServicio,
       referencia: data.referencia,
@@ -207,15 +260,19 @@ function buildPaymentPayloadVariants(data: CreatePagoPedidoDto) {
     {
       metodo_pago_id: data.metodoPagoId,
       monto: data.monto,
+      monto_moneda: data.montoMoneda,
       moneda: data.moneda,
       moneda_id: data.monedaId,
       monto_colones: data.montoColones,
       monto_recibido: data.montoRecibido,
+      monto_recibido_moneda: data.montoRecibidoMoneda,
       monto_recibido_colones: data.montoRecibidoColones,
       vuelto: data.vuelto,
       vuelto_colones: data.vueltoColones,
       tipo_cambio_id: data.tipoCambioId,
-      account_id: data.accountId,
+      cuenta_pedido_id: accountScopeId,
+      cuenta_id: accountScopeId,
+      account_id: accountScopeId,
       aplicar_servicio: data.aplicarServicio,
       exonerar_servicio: data.exonerarServicio,
       referencia: data.referencia,

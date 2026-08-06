@@ -1713,10 +1713,18 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                         </TableCell>
                       </TableRow>
                     ) : (
-                      currentDetails.map((detail) => (
+                      currentDetails.map((detail) => {
+                        const matchedProduct = products.find((product) => product.id === detail.productoId)
+                        const productLabel =
+                          detail.producto?.nombre ??
+                          detail.productoNombre ??
+                          matchedProduct?.nombre ??
+                          'Producto'
+
+                        return (
                         <TableRow key={detail.id}>
                           <TableCell sx={{ color: COLOR_TEXT }}>
-                            {detail.producto?.nombre ? detail.producto.nombre : `Producto #${detail.productoId}`}
+                            {productLabel}
                           </TableCell>
                           <TableCell sx={{ color: COLOR_TEXT }}>{detail.cantidad}</TableCell>
                           <TableCell sx={{ color: COLOR_TEXT }}>{formatCurrency(detail.precioUnitario)}</TableCell>
@@ -1735,7 +1743,8 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                             </Stack>
                           </TableCell>
                         </TableRow>
-                      ))
+                        )
+                      })
                     )}
                   </TableBody>
                 </Table>

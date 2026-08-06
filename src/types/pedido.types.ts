@@ -5,6 +5,7 @@ export type EstadoPedido = 'BORRADOR' | 'EN_PREPARACION' | 'LISTO' | 'FACTURADO'
 export interface PedidoDetalle {
   id: number
   productoId: number
+  productoNombre?: string
   producto?: {
     id?: number
     nombre?: string
@@ -57,10 +58,13 @@ export interface PedidoAccount {
   nombre?: string
   numero?: string
   activo?: boolean
+  estado?: string
   detalles?: PedidoAccountDetail[]
   subtotal?: number
   servicio?: number
   total?: number
+  totalPagado?: number
+  saldoPendiente?: number
   createdAt?: string
   updatedAt?: string
 }
@@ -109,14 +113,18 @@ export interface CreatePedidoDetalleDto {
 export interface CreatePagoPedidoDto {
   metodoPagoId: number
   monto: number
+  montoMoneda?: number
   moneda?: 'CRC' | 'USD' | string
   monedaId?: number
   montoColones?: number
   montoRecibido?: number
+  montoRecibidoMoneda?: number
   montoRecibidoColones?: number
   vuelto?: number
   vueltoColones?: number
   tipoCambioId?: number
+  cuentaPedidoId?: number
+  cuentaId?: number
   accountId?: number
   aplicarServicio?: boolean
   exonerarServicio?: boolean
@@ -135,13 +143,16 @@ export interface CreatePedidoAccountDto {
 }
 
 export interface PedidoAccountSplitItemDto {
-  detailId: number
+  detailId?: number
+  productoId?: number
   cantidad?: number
 }
 
 export interface PedidoAccountSplitItemAltDto {
   detailId?: number
   detalleId?: number
+  productoId?: number
+  producto_id?: number
   cantidad?: number
   quantity?: number
   qty?: number

@@ -679,7 +679,7 @@ export default function PlatoDelMesPage() {
                         <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
                           <Box>
                             <Typography sx={{ fontFamily: '"Playfair Display", serif', fontSize: '1.25rem' }}>
-                              {product?.nombre ?? `Producto #${resolveDishProductId(currentDish)}`}
+                              {product?.nombre ?? 'Producto'}
                             </Typography>
                             <Typography sx={{ color: COLOR_GOLD, fontWeight: 700 }}>
                               {formatCRC(product?.precio ?? 0)}
@@ -774,7 +774,7 @@ export default function PlatoDelMesPage() {
                     <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
                       <Box>
                         <Typography sx={{ color: COLOR_GOLD, fontWeight: 700 }}>
-                          {product?.nombre ?? `Producto #${resolveDishProductId(dish)}`}
+                          {product?.nombre ?? 'Producto'}
                         </Typography>
                         <Typography sx={{ color: 'rgba(243,233,210,0.78)', fontSize: '0.9rem' }}>
                           {formatMonthYear(dish)} · {formatDateRange(dish)} · {formatCRC(product?.precio ?? 0)}

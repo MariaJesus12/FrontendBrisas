@@ -1523,7 +1523,7 @@ export default function MesasPage() {
                       currentPedidoDetails.map((detalle) => {
                         const matchedProduct = products.find((product) => product.id === detalle.productoId)
                         const productName =
-                          detalle.producto?.nombre ?? matchedProduct?.nombre ?? `Producto #${detalle.productoId}`
+                          detalle.producto?.nombre ?? detalle.productoNombre ?? matchedProduct?.nombre ?? 'Producto'
                         const subtotal = detalle.subtotal ?? detalle.precioUnitario * detalle.cantidad
 
                         return (
@@ -1863,7 +1863,14 @@ export default function MesasPage() {
           <Stack spacing={2}>
             <TextField
               label="Producto"
-              value={editingDetail?.producto?.nombre ?? (editingDetail ? `Producto #${editingDetail.productoId}` : '')}
+              value={
+                editingDetail
+                  ? editingDetail.producto?.nombre ??
+                    editingDetail.productoNombre ??
+                    products.find((product) => product.id === editingDetail.productoId)?.nombre ??
+                    'Producto'
+                  : ''
+              }
               fullWidth
               disabled
               sx={{
