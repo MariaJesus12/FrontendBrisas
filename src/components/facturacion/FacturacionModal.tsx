@@ -48,7 +48,7 @@ const COLOR_TEXT = '#F3E9D2'
 const COLOR_MUTED = 'rgba(243,233,210,0.72)'
 const ORDER_SCOPE_KEY = 'UNASSIGNED'
 const MONEY_EPSILON = 0.01
-const PAID_ACCOUNT_STATUSES = new Set(['PAGADA', 'PAGADO', 'CERRADA', 'CERRADO', 'FACTURADA', 'FACTURADO'])
+const PAID_ACCOUNT_STATUSES = new Set(['PAGADA', 'PAGADO', 'CERRADA', 'CERRADO'])
 
 function isPaidAccountStatus(status: unknown): boolean {
   return PAID_ACCOUNT_STATUSES.has(String(status ?? '').trim().toUpperCase())
@@ -300,6 +300,10 @@ function normalizePago(item: unknown): PagoPedido | null {
       ? (record.metodoPago as Record<string, unknown>)
       : typeof record.metodo_pago === 'object' && record.metodo_pago !== null
         ? (record.metodo_pago as Record<string, unknown>)
+        : typeof record.paymentMethod === 'object' && record.paymentMethod !== null
+          ? (record.paymentMethod as Record<string, unknown>)
+          : typeof record.payment_method === 'object' && record.payment_method !== null
+            ? (record.payment_method as Record<string, unknown>)
         : null
   const metodoPagoId = Number(
     record.metodoPagoId ??
@@ -315,9 +319,11 @@ function normalizePago(item: unknown): PagoPedido | null {
     return null
   }
 
+  const normalizedMetodoPagoId = Number.isFinite(metodoPagoId) && metodoPagoId > 0 ? metodoPagoId : 0
+
   return {
     id,
-    metodoPagoId,
+    metodoPagoId: normalizedMetodoPagoId,
     metodoPago:
       typeof record.metodoPago === 'object' && record.metodoPago !== null
         ? (record.metodoPago as PagoPedido['metodoPago'])
@@ -545,6 +551,7 @@ function unwrapArrayPayload<T>(payload: unknown, normalizer: (item: unknown) => 
       'pedidoAccounts',
       'pedido_accounts',
       'payments',
+      'pagos',
       'methods',
       'details',
       'detalles',
@@ -562,9 +569,9 @@ function unwrapArrayPayload<T>(payload: unknown, normalizer: (item: unknown) => 
       }
 
       if (typeof value === 'object' && value !== null) {
-        const single = normalizer(value)
-        if (single) {
-          return [single]
+        const nested = unwrapArrayPayload(value, normalizer)
+        if (nested.length > 0) {
+          return nested
         }
       }
     }
@@ -644,6 +651,7 @@ export default function FacturacionModal({
   const [methods, setMethods] = useState<MetodoPago[]>(FALLBACK_PAYMENT_METHODS)
   const [monedas, setMonedas] = useState<Moneda[]>([])
   const [activeTipoCambio, setActiveTipoCambio] = useState<TipoCambio | null>(null)
+  const [paymentScopeById, setPaymentScopeById] = useState<Record<number, number | null>>({})
 
   const [selectedAccountId, setSelectedAccountId] = useState('')
   const [newAccountName, setNewAccountName] = useState('')
@@ -663,6 +671,7 @@ export default function FacturacionModal({
       return
     }
 
+    setPaymentScopeById({})
     void loadData(pedidoId)
   }, [open, pedidoId])
 
@@ -753,10 +762,18 @@ export default function FacturacionModal({
       return
     }
 
-    const [accountsRes, paymentsRes] = await Promise.allSettled([
+    const [pedidoRes, accountsRes, paymentsRes] = await Promise.allSettled([
+      pedidosService.getById(pedidoId),
       pedidosService.getAccounts(pedidoId),
       pedidosService.getPayments(pedidoId),
     ])
+
+    if (pedidoRes.status === 'fulfilled') {
+      const nextPedido = normalizePedido(pedidoRes.value.data)
+      if (nextPedido) {
+        setPedido(nextPedido)
+      }
+    }
 
     if (accountsRes.status === 'fulfilled') {
       setAccounts(unwrapArrayPayload(accountsRes.value.data, normalizeAccount))
@@ -959,7 +976,13 @@ export default function FacturacionModal({
   }
 
   function getPaymentAccountId(payment: PagoPedido): number | null {
-    return toPositiveInt(payment.accountId ?? null)
+    const direct = toPositiveInt(payment.accountId ?? null)
+    if (direct) {
+      return direct
+    }
+
+    const mapped = paymentScopeById[payment.id]
+    return mapped === null ? null : toPositiveInt(mapped ?? null)
   }
 
   function resolvePaymentCurrency(payment: PagoPedido): 'CRC' | 'USD' {
@@ -990,9 +1013,43 @@ export default function FacturacionModal({
     return 'CRC'
   }
 
+  function resolvePaymentAmountCRC(payment: PagoPedido): number {
+    const montoColones = Number(payment.montoColones ?? 0)
+    if (Number.isFinite(montoColones) && montoColones > 0) {
+      return montoColones
+    }
+
+    const paymentCurrency = resolvePaymentCurrency(payment)
+    const amount = Number(payment.montoMoneda ?? payment.monto ?? 0)
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return 0
+    }
+
+    if (paymentCurrency === 'USD') {
+      if (!exchangeRate || exchangeRate <= 0) {
+        return 0
+      }
+      return amount * exchangeRate
+    }
+
+    return amount
+  }
+
+  function isValidRegisteredPayment(payment: PagoPedido): boolean {
+    const methodId = toPositiveInt(payment.metodoPagoId)
+    const methodName = String(payment.metodoPago?.nombre ?? '').trim()
+    const hasMethod = methodId !== null || methodName.length > 0
+    if (!hasMethod) {
+      return false
+    }
+
+    return resolvePaymentAmountCRC(payment) > MONEY_EPSILON
+  }
+
   function getScopeAmounts(accountId: number | null) {
     const scopeKey = getScopeKey(accountId)
     const account = accountId ? accounts.find((item) => item.id === accountId) ?? null : null
+    const isOrderScope = !accountId
 
     const computedSubtotal = accountId ? Number(accountSubtotalById.get(accountId) ?? 0) : unassignedSubtotal
     const backendSubtotal = Number(account?.subtotal ?? 0)
@@ -1011,54 +1068,50 @@ export default function FacturacionModal({
     const totalCRC =
       accountId && Number.isFinite(backendTotal) && backendTotal > 0 ? roundMoney(backendTotal) : roundMoney(computedTotal)
 
+    const matchesScope = (payment: PagoPedido): boolean => {
+      const paymentAccountId = getPaymentAccountId(payment)
+
+      if (accountId) {
+        if (paymentAccountId === accountId) {
+          return true
+        }
+
+        // Some backends persist split-account payments but return them without accountId.
+        // If there is only one account, treat unscoped payments as belonging to it.
+        if (paymentAccountId === null && accounts.length === 1 && accounts[0]?.id === accountId) {
+          return true
+        }
+
+        return false
+      }
+
+      // If the order is not split, any payment belongs to the same billing scope.
+      if (accounts.length === 0) {
+        return true
+      }
+
+      return paymentAccountId === null
+    }
+
     const paidCRC = roundMoney(
       payments.reduce((sum, payment) => {
-        const paymentAccountId = getPaymentAccountId(payment)
-        const isSameScope = accountId ? paymentAccountId === accountId : paymentAccountId === null
-        if (!isSameScope) {
+        if (!matchesScope(payment)) {
           return sum
         }
 
-        const montoColones = Number(payment.montoColones ?? 0)
-        if (Number.isFinite(montoColones) && montoColones > 0) {
-          return sum + montoColones
-        }
-
-        const paymentCurrency = resolvePaymentCurrency(payment)
-        const amount = Number(payment.montoMoneda ?? payment.monto ?? 0)
-        if (!Number.isFinite(amount) || amount <= 0) {
+        if (!isValidRegisteredPayment(payment)) {
           return sum
         }
 
-        if (paymentCurrency === 'USD' && exchangeRate) {
-          return sum + amount * exchangeRate
-        }
-
-        return sum + amount
+        return sum + resolvePaymentAmountCRC(payment)
       }, 0),
     )
 
-    const backendPaidRaw = Number(account?.totalPagado ?? 0)
-    const backendPaidCRC = Number.isFinite(backendPaidRaw) && backendPaidRaw > 0 ? roundMoney(backendPaidRaw) : 0
-    const effectivePaidFromPayments = roundMoney(Math.max(paidCRC, backendPaidCRC))
-
-    const hasScopePayments = payments.some((payment) => {
-      const paymentAccountId = getPaymentAccountId(payment)
-      return accountId ? paymentAccountId === accountId : paymentAccountId === null
-    })
-    const hasPaidEvidence = hasScopePayments || backendPaidCRC > MONEY_EPSILON
+    const scopeMarkedPaidByStatus = !isOrderScope && isPaidAccountStatus(account?.estado)
+    const effectivePaidFromPayments = roundMoney(paidCRC)
 
     const calculatedPending = roundMoney(Math.max(totalCRC - effectivePaidFromPayments, 0))
-    const backendPending = Number(account?.saldoPendiente ?? NaN)
-    const hasBackendPending = accountId && Number.isFinite(backendPending) && backendPending >= 0
-    const backendPendingCRC = hasBackendPending ? roundMoney(Math.max(backendPending, 0)) : null
-    const pendingCRC = isPaidAccountStatus(account?.estado)
-      ? 0
-      : hasPaidEvidence
-        ? calculatedPending
-        : backendPendingCRC !== null
-        ? backendPendingCRC
-        : calculatedPending
+    const pendingCRC = scopeMarkedPaidByStatus ? 0 : calculatedPending
     const effectivePaidCRC = roundMoney(Math.max(totalCRC - pendingCRC, 0))
     const chargeCRC = pendingCRC
     const totalUSD = exchangeRate ? roundMoney(totalCRC / exchangeRate) : null
@@ -1427,7 +1480,7 @@ export default function FacturacionModal({
     try {
       const cuentaPedidoId = accountId ?? undefined
 
-      await pedidosService.createPayment(pedidoId, {
+      const paymentResponse = await pedidosService.createPayment(pedidoId, {
         metodoPagoId,
         monto: payableAmount,
         montoMoneda: payableAmount,
@@ -1451,6 +1504,18 @@ export default function FacturacionModal({
         exonerarServicio: isMesaOrder ? !isServiceApplied(scopeKey) : true,
         referencia: (referenceByScope[scopeKey] ?? '').trim() || undefined,
       })
+
+      const createdPayment =
+        normalizePago(paymentResponse.data) ??
+        unwrapArrayPayload(paymentResponse.data, normalizePago)[0] ??
+        null
+
+      if (createdPayment?.id) {
+        setPaymentScopeById((current) => ({
+          ...current,
+          [createdPayment.id]: accountId,
+        }))
+      }
 
       toast.success('Pago registrado.')
       setReceivedByScope((current) => ({ ...current, [scopeKey]: '' }))
@@ -1524,7 +1589,22 @@ export default function FacturacionModal({
 
     const scopePayments = payments.filter((payment) => {
       const paymentAccountId = getPaymentAccountId(payment)
-      return accountId ? paymentAccountId === accountId : paymentAccountId === null
+
+      if (accountId) {
+        if (paymentAccountId === accountId) {
+          return true
+        }
+
+        // Some APIs omit accountId even when the payment belongs to the only split account.
+        return paymentAccountId === null && accounts.length === 1 && accounts[0]?.id === accountId
+      }
+
+      // Main account (non-split): include all payments from the order.
+      if (accounts.length === 0) {
+        return true
+      }
+
+      return paymentAccountId === null
     })
 
     const paymentsHtml =
@@ -1575,6 +1655,9 @@ export default function FacturacionModal({
 
     const html = `
       <html>
+        <head>
+          <title>${escapeHtml(title)} - Pedido #${pedido?.id ?? pedidoId ?? ''}</title>
+          <style>
             body { font-family: 'Segoe UI', Arial, sans-serif; padding: 12px; color: #1f2937; }
             .ticket { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; }
             .header { text-align: center; margin-bottom: 10px; }
@@ -1591,9 +1674,9 @@ export default function FacturacionModal({
             .totals { border-top: 1px dashed #cbd5e1; padding-top: 6px; }
             .totals div { display: flex; justify-content: space-between; margin: 4px 0; font-size: 12px; }
             .total { font-weight: 800; font-size: 14px; color: #111827; }
-            th { text-align: left; }
-            .totals div { display: flex; justify-content: space-between; margin: 4px 0; font-size: 13px; }
-            .total { font-weight: 700; font-size: 14px; }
+          </style>
+        </head>
+        <body>
           <div class="ticket">
             <div class="header">
               <div class="restaurant">Brisas del Lago</div>
@@ -1640,10 +1723,6 @@ export default function FacturacionModal({
               <div><span>Total pagado</span><span>${formatCRC(totalPagado)}</span></div>
               ${totalVuelto > 0 ? `<div><span>Vuelto</span><span>${formatCRC(totalVuelto)}</span></div>` : ''}
             </div>
-          </div>
-            <div class="total"><span>Total</span><span>${formatCRC(scopeAmounts.totalCRC)}</span></div>
-            <div><span>Pagado</span><span>${formatCRC(scopeAmounts.paidCRC)}</span></div>
-            <div><span>Pendiente</span><span>${formatCRC(scopeAmounts.pendingCRC)}</span></div>
           </div>
         </body>
       </html>
