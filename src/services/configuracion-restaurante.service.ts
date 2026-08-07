@@ -1,3 +1,4 @@
+import axios from 'axios'
 import api from './api'
 import type { RestaurantConfig, UpsertRestaurantConfigDto } from '@/types/configuracion-restaurante.types'
 
@@ -66,6 +67,11 @@ function normalizeList(payload: unknown): RestaurantConfig[] {
   }
 
   if (typeof payload === 'object' && payload !== null) {
+    const single = normalizeRestaurantConfig(payload)
+    if (single) {
+      return [single]
+    }
+
     const container = payload as {
       data?: unknown
       items?: unknown
@@ -108,6 +114,15 @@ function normalizeList(payload: unknown): RestaurantConfig[] {
   return []
 }
 
+function shouldFallbackAllEndpoint(error: unknown): boolean {
+  if (!axios.isAxiosError(error)) {
+    return false
+  }
+
+  const status = error.response?.status
+  return status === 403 || status === 404 || status === 405
+}
+
 function sortConfigsNewestFirst(configs: RestaurantConfig[]): RestaurantConfig[] {
   return [...configs].sort((a, b) => {
     const aTime = a.createdAt ? Date.parse(a.createdAt) : Number.NaN
@@ -143,7 +158,17 @@ export function normalizeRestaurantConfigListPayload(payload: unknown): Restaura
 
 export const restaurantConfigService = {
   getCurrent: () => api.get<RestaurantConfig>('/configuracion-restaurante'),
-  getAll: () => api.get<RestaurantConfig[]>('/configuracion-restaurante/all'),
+  getAll: async () => {
+    try {
+      return await api.get<RestaurantConfig[]>('/configuracion-restaurante/all')
+    } catch (error) {
+      if (!shouldFallbackAllEndpoint(error)) {
+        throw error
+      }
+
+      return api.get<RestaurantConfig[]>('/configuracion-restaurante')
+    }
+  },
   getById: (id: number) => api.get<RestaurantConfig>(`/configuracion-restaurante/${id}`),
   create: (data: UpsertRestaurantConfigDto) => api.post<RestaurantConfig>('/configuracion-restaurante', data),
   update: (id: number, data: UpsertRestaurantConfigDto) =>

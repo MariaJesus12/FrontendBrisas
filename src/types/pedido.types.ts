@@ -27,6 +27,7 @@ export interface PagoPedido {
     nombre?: string
   }
   monto: number
+  montoMoneda?: number
   moneda?: string
   monedaId?: number
   montoColones?: number

@@ -94,6 +94,15 @@ function extractBackendMessage(payload: unknown): string {
   return ''
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
 function formatCRC(value: number): string {
   return new Intl.NumberFormat('es-CR', {
     style: 'currency',
@@ -118,6 +127,53 @@ function roundMoney(value: number): number {
   }
 
   return Math.round(value * 10000) / 10000
+}
+
+function parseMoneyValue(value: unknown): number {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : Number.NaN
+  }
+
+  if (typeof value !== 'string') {
+    return Number.NaN
+  }
+
+  const cleaned = value.trim().replace(/[^\d,.-]/g, '')
+  if (!cleaned) {
+    return Number.NaN
+  }
+
+  const normalized =
+    cleaned.includes(',') && !cleaned.includes('.')
+      ? cleaned.replace(/,/g, '.')
+      : cleaned.includes(',') && cleaned.includes('.')
+        ? cleaned.replace(/,/g, '')
+        : cleaned
+
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : Number.NaN
+}
+
+function normalizeCurrencyCode(value: unknown): string {
+  const normalized = String(value ?? '')
+    .trim()
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+
+  if (!normalized) {
+    return ''
+  }
+
+  if (normalized === 'USD' || normalized.includes('DOLAR') || normalized === '$') {
+    return 'USD'
+  }
+
+  if (normalized === 'CRC' || normalized.includes('COLON') || normalized.includes('COLONES') || normalized === '₡') {
+    return 'CRC'
+  }
+
+  return normalized
 }
 
 function normalizePedido(item: unknown): Pedido | null {
@@ -224,11 +280,38 @@ function normalizePago(item: unknown): PagoPedido | null {
   }
 
   const record = item as Record<string, unknown>
+  const monedaRecord =
+    typeof record.moneda === 'object' && record.moneda !== null
+      ? (record.moneda as Record<string, unknown>)
+      : null
+  const accountRecord =
+    typeof record.account === 'object' && record.account !== null
+      ? (record.account as Record<string, unknown>)
+      : typeof record.cuenta === 'object' && record.cuenta !== null
+        ? (record.cuenta as Record<string, unknown>)
+        : typeof record.cuentaPedido === 'object' && record.cuentaPedido !== null
+          ? (record.cuentaPedido as Record<string, unknown>)
+          : typeof record.pedidoCuenta === 'object' && record.pedidoCuenta !== null
+            ? (record.pedidoCuenta as Record<string, unknown>)
+            : null
   const id = Number(record.id ?? 0)
-  const metodoPagoId = Number(record.metodoPagoId ?? record.metodo_pago_id ?? 0)
-  const monto = Number(record.monto ?? 0)
+  const metodoPagoRecord =
+    typeof record.metodoPago === 'object' && record.metodoPago !== null
+      ? (record.metodoPago as Record<string, unknown>)
+      : typeof record.metodo_pago === 'object' && record.metodo_pago !== null
+        ? (record.metodo_pago as Record<string, unknown>)
+        : null
+  const metodoPagoId = Number(
+    record.metodoPagoId ??
+      record.metodo_pago_id ??
+      record.paymentMethodId ??
+      record.payment_method_id ??
+      metodoPagoRecord?.id ??
+      0,
+  )
+  const monto = parseMoneyValue(record.monto)
 
-  if (!Number.isFinite(id) || id <= 0 || !Number.isFinite(metodoPagoId) || metodoPagoId <= 0) {
+  if (!Number.isFinite(id) || id <= 0) {
     return null
   }
 
@@ -240,7 +323,25 @@ function normalizePago(item: unknown): PagoPedido | null {
         ? (record.metodoPago as PagoPedido['metodoPago'])
         : undefined,
     monto: Number.isFinite(monto) ? monto : 0,
-    moneda: typeof record.moneda === 'string' ? record.moneda : undefined,
+    montoMoneda:
+      parseMoneyValue(record.montoMoneda ?? record.monto_moneda ?? record.montoDolares ?? record.monto_dolares) ||
+      undefined,
+    moneda:
+      typeof record.moneda === 'string'
+        ? record.moneda
+        : typeof record.monedaCodigo === 'string'
+          ? record.monedaCodigo
+          : typeof record.moneda_codigo === 'string'
+            ? record.moneda_codigo
+            : typeof record.currency === 'string'
+              ? record.currency
+              : typeof monedaRecord?.codigo === 'string'
+                ? monedaRecord.codigo
+                : typeof monedaRecord?.nombre === 'string'
+                  ? monedaRecord.nombre
+                  : typeof monedaRecord?.simbolo === 'string'
+                    ? monedaRecord.simbolo
+                    : undefined,
     monedaId: toPositiveInt(record.monedaId ?? record.moneda_id) ?? undefined,
     accountId:
       toPositiveInt(
@@ -248,14 +349,32 @@ function normalizePago(item: unknown): PagoPedido | null {
           record.account_id ??
           record.cuentaId ??
           record.cuenta_id ??
+          record.accountScopeId ??
+          record.account_scope_id ??
+          record.pedidoCuentaId ??
+          record.pedido_cuenta_id ??
           record.cuentaPedidoId ??
-          record.cuenta_pedido_id,
+          record.cuenta_pedido_id ??
+          accountRecord?.id ??
+          accountRecord?.accountId ??
+          accountRecord?.account_id ??
+          accountRecord?.cuentaId ??
+          accountRecord?.cuenta_id ??
+          accountRecord?.pedidoCuentaId ??
+          accountRecord?.pedido_cuenta_id ??
+          accountRecord?.cuentaPedidoId ??
+          accountRecord?.cuenta_pedido_id,
       ) ?? undefined,
-    montoColones: Number(record.montoColones ?? record.monto_colones ?? 0) || undefined,
-    montoRecibido: Number(record.montoRecibido ?? record.monto_recibido ?? 0) || undefined,
-    montoRecibidoColones: Number(record.montoRecibidoColones ?? record.monto_recibido_colones ?? 0) || undefined,
-    vuelto: Number(record.vuelto ?? 0) || undefined,
-    vueltoColones: Number(record.vueltoColones ?? record.vuelto_colones ?? 0) || undefined,
+    montoColones:
+      parseMoneyValue(record.montoColones ?? record.monto_colones ?? record.montoCRC ?? record.monto_crc) || undefined,
+    montoRecibido:
+      parseMoneyValue(record.montoRecibido ?? record.monto_recibido ?? record.montoRecibidoMoneda ?? record.monto_recibido_moneda) ||
+      undefined,
+    montoRecibidoColones:
+      parseMoneyValue(record.montoRecibidoColones ?? record.monto_recibido_colones ?? record.montoRecibidoCRC ?? record.monto_recibido_crc) ||
+      undefined,
+    vuelto: parseMoneyValue(record.vuelto) || undefined,
+    vueltoColones: parseMoneyValue(record.vueltoColones ?? record.vuelto_colones ?? record.vueltoCRC ?? record.vuelto_crc) || undefined,
     referencia: typeof record.referencia === 'string' ? record.referencia : undefined,
   }
 }
@@ -843,6 +962,34 @@ export default function FacturacionModal({
     return toPositiveInt(payment.accountId ?? null)
   }
 
+  function resolvePaymentCurrency(payment: PagoPedido): 'CRC' | 'USD' {
+    const byLabel = normalizeCurrencyCode(payment.moneda)
+    if (byLabel === 'USD' || byLabel === 'CRC') {
+      return byLabel
+    }
+
+    const currencyId = toPositiveInt(payment.monedaId ?? null)
+    if (currencyId) {
+      const byId = monedas.find((item) => item.id === currencyId)
+      const byCode = normalizeCurrencyCode(byId?.codigo)
+      if (byCode === 'USD' || byCode === 'CRC') {
+        return byCode
+      }
+
+      const byName = normalizeCurrencyCode(byId?.nombre)
+      if (byName === 'USD' || byName === 'CRC') {
+        return byName
+      }
+
+      const bySymbol = normalizeCurrencyCode(byId?.simbolo)
+      if (bySymbol === 'USD' || bySymbol === 'CRC') {
+        return bySymbol
+      }
+    }
+
+    return 'CRC'
+  }
+
   function getScopeAmounts(accountId: number | null) {
     const scopeKey = getScopeKey(accountId)
     const account = accountId ? accounts.find((item) => item.id === accountId) ?? null : null
@@ -877,8 +1024,8 @@ export default function FacturacionModal({
           return sum + montoColones
         }
 
-        const paymentCurrency = String(payment.moneda ?? 'CRC').toUpperCase()
-        const amount = Number(payment.monto ?? 0)
+        const paymentCurrency = resolvePaymentCurrency(payment)
+        const amount = Number(payment.montoMoneda ?? payment.monto ?? 0)
         if (!Number.isFinite(amount) || amount <= 0) {
           return sum
         }
@@ -891,13 +1038,25 @@ export default function FacturacionModal({
       }, 0),
     )
 
-    const calculatedPending = roundMoney(Math.max(totalCRC - paidCRC, 0))
+    const backendPaidRaw = Number(account?.totalPagado ?? 0)
+    const backendPaidCRC = Number.isFinite(backendPaidRaw) && backendPaidRaw > 0 ? roundMoney(backendPaidRaw) : 0
+    const effectivePaidFromPayments = roundMoney(Math.max(paidCRC, backendPaidCRC))
+
+    const hasScopePayments = payments.some((payment) => {
+      const paymentAccountId = getPaymentAccountId(payment)
+      return accountId ? paymentAccountId === accountId : paymentAccountId === null
+    })
+    const hasPaidEvidence = hasScopePayments || backendPaidCRC > MONEY_EPSILON
+
+    const calculatedPending = roundMoney(Math.max(totalCRC - effectivePaidFromPayments, 0))
     const backendPending = Number(account?.saldoPendiente ?? NaN)
     const hasBackendPending = accountId && Number.isFinite(backendPending) && backendPending >= 0
     const backendPendingCRC = hasBackendPending ? roundMoney(Math.max(backendPending, 0)) : null
     const pendingCRC = isPaidAccountStatus(account?.estado)
       ? 0
-      : backendPendingCRC !== null
+      : hasPaidEvidence
+        ? calculatedPending
+        : backendPendingCRC !== null
         ? backendPendingCRC
         : calculatedPending
     const effectivePaidCRC = roundMoney(Math.max(totalCRC - pendingCRC, 0))
@@ -1344,29 +1503,69 @@ export default function FacturacionModal({
           const source = detailId ? detailsById.get(detailId) : null
           const label = source?.producto?.nombre ?? source?.productoNombre ?? detail.productoNombre ?? 'Producto'
           const quantity = Number(detail.cantidad ?? source?.cantidad ?? 0)
+          const unitPrice = Number(detail.precioUnitario ?? source?.precioUnitario ?? 0)
           const amount = Number(detail.subtotal ?? source?.subtotal ?? quantity * Number(detail.precioUnitario ?? source?.precioUnitario ?? 0))
 
           return {
             label,
             quantity,
+            unitPrice,
             amount: Number.isFinite(amount) ? amount : 0,
+            observation: source?.observacion?.trim() || undefined,
           }
         })
       : unassignedDetails.map((detail) => ({
           label: detail.label,
           quantity: Number(detail.cantidad ?? 0),
+          unitPrice: Number(detail.cantidad ?? 0) > 0 ? Number(detail.subtotal ?? 0) / Number(detail.cantidad ?? 1) : 0,
           amount: Number(detail.subtotal ?? 0),
+          observation: undefined,
         }))
+
+    const scopePayments = payments.filter((payment) => {
+      const paymentAccountId = getPaymentAccountId(payment)
+      return accountId ? paymentAccountId === accountId : paymentAccountId === null
+    })
+
+    const paymentsHtml =
+      scopePayments.length > 0
+        ? scopePayments
+            .map((payment) => {
+              const methodName =
+                payment.metodoPago?.nombre ??
+                methods.find((method) => method.id === payment.metodoPagoId)?.nombre ??
+                `Método #${payment.metodoPagoId}`
+
+              const amount = Number(payment.montoColones ?? payment.monto ?? 0)
+              return `<tr><td>${escapeHtml(methodName)}</td><td style="text-align:right;">${formatCRC(Number.isFinite(amount) ? amount : 0)}</td></tr>`
+            })
+            .join('')
+        : '<tr><td colspan="2" style="text-align:center;color:#6b7280;">Sin pagos registrados</td></tr>'
+
+    const totalPagado = scopePayments.reduce((sum, payment) => {
+      const amount = Number(payment.montoColones ?? payment.monto ?? 0)
+      return sum + (Number.isFinite(amount) ? amount : 0)
+    }, 0)
+
+    const totalVuelto = scopePayments.reduce((sum, payment) => {
+      const change = Number(payment.vueltoColones ?? payment.vuelto ?? 0)
+      return sum + (Number.isFinite(change) && change > 0 ? change : 0)
+    }, 0)
 
     const rowsHtml =
       lines.length > 0
         ? lines
             .map(
-              (line) =>
-                `<tr><td>${line.label}</td><td style="text-align:center;">${line.quantity > 0 ? line.quantity : '-'}</td><td style="text-align:right;">${formatCRC(line.amount)}</td></tr>`,
+              (line) => {
+                const note = line.observation ? `<div class="item-note">Obs: ${escapeHtml(line.observation)}</div>` : ''
+                return `<tr><td><div class="item-name">${escapeHtml(line.label)}</div>${note}</td><td style="text-align:center;">${line.quantity > 0 ? line.quantity : '-'}</td><td style="text-align:right;">${formatCRC(Number.isFinite(line.unitPrice) ? line.unitPrice : 0)}</td><td style="text-align:right;">${formatCRC(line.amount)}</td></tr>`
+              },
             )
             .join('')
-        : '<tr><td colspan="3" style="text-align:center;color:#666;">Sin productos</td></tr>'
+        : '<tr><td colspan="4" style="text-align:center;color:#6b7280;">Sin productos</td></tr>'
+
+    const printedDate = now.toLocaleDateString('es-CR')
+    const printedTime = now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' })
 
     const popup = window.open('', '_blank', 'width=420,height=700')
     if (!popup) {
@@ -1376,36 +1575,72 @@ export default function FacturacionModal({
 
     const html = `
       <html>
-        <head>
-          <title>${title} - Pedido #${pedido?.id ?? pedidoId ?? ''}</title>
-          <style>
-            body { font-family: Arial, sans-serif; padding: 14px; color: #222; }
-            h2, h3 { margin: 0 0 8px 0; }
-            .meta { font-size: 12px; color: #666; margin-bottom: 12px; }
-            table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
-            th, td { border-bottom: 1px solid #ddd; padding: 6px 4px; font-size: 12px; }
+            body { font-family: 'Segoe UI', Arial, sans-serif; padding: 12px; color: #1f2937; }
+            .ticket { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; }
+            .header { text-align: center; margin-bottom: 10px; }
+            .restaurant { font-size: 20px; font-weight: 800; letter-spacing: 0.3px; }
+            .subtitle { font-size: 12px; color: #6b7280; margin-top: 2px; }
+            .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; margin: 10px 0 12px; font-size: 12px; }
+            .meta-item b { display: block; color: #6b7280; font-weight: 600; margin-bottom: 2px; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+            th, td { border-bottom: 1px solid #eceff3; padding: 6px 4px; font-size: 12px; vertical-align: top; }
+            th { text-align: left; color: #475569; font-weight: 700; }
+            .item-name { font-weight: 600; color: #111827; }
+            .item-note { font-size: 11px; color: #6b7280; margin-top: 2px; }
+            .section-title { font-size: 12px; font-weight: 700; color: #374151; margin: 10px 0 4px; }
+            .totals { border-top: 1px dashed #cbd5e1; padding-top: 6px; }
+            .totals div { display: flex; justify-content: space-between; margin: 4px 0; font-size: 12px; }
+            .total { font-weight: 800; font-size: 14px; color: #111827; }
             th { text-align: left; }
             .totals div { display: flex; justify-content: space-between; margin: 4px 0; font-size: 13px; }
             .total { font-weight: 700; font-size: 14px; }
-          </style>
-        </head>
-        <body>
-          <h2>Brisas</h2>
-          <h3>${title}</h3>
-          <div class="meta">Pedido #${pedido?.id ?? pedidoId ?? ''} ${pedido?.codigo ? `• ${pedido.codigo}` : ''}<br/>${now.toLocaleString('es-CR')}</div>
-          <table>
-            <thead>
-              <tr>
-                <th>Producto</th>
-                <th style="text-align:center;">Cant.</th>
-                <th style="text-align:right;">Subtotal</th>
-              </tr>
-            </thead>
-            <tbody>${rowsHtml}</tbody>
-          </table>
-          <div class="totals">
-            <div><span>Subtotal</span><span>${formatCRC(scopeAmounts.subtotal)}</span></div>
-            <div><span>Servicio</span><span>${formatCRC(scopeAmounts.serviceAmount)}</span></div>
+          <div class="ticket">
+            <div class="header">
+              <div class="restaurant">Brisas del Lago</div>
+              <div class="subtitle">${escapeHtml(title)}</div>
+            </div>
+
+            <div class="meta-grid">
+              <div class="meta-item"><b>Fecha</b>${printedDate}</div>
+              <div class="meta-item"><b>Hora</b>${printedTime}</div>
+              <div class="meta-item"><b>Número de pedido</b>#${pedido?.id ?? pedidoId ?? ''}</div>
+              <div class="meta-item"><b>Código</b>${escapeHtml(pedido?.codigo ?? '-')}</div>
+            </div>
+
+            <table>
+              <thead>
+                <tr>
+                  <th>Producto</th>
+                  <th style="text-align:center;">Cant.</th>
+                  <th style="text-align:right;">Precio</th>
+                  <th style="text-align:right;">Subtotal</th>
+                </tr>
+              </thead>
+              <tbody>${rowsHtml}</tbody>
+            </table>
+
+            <div class="totals">
+              <div><span>Subtotal</span><span>${formatCRC(scopeAmounts.subtotal)}</span></div>
+              ${scopeAmounts.serviceAmount > 0 ? `<div><span>Impuesto por servicio</span><span>${formatCRC(scopeAmounts.serviceAmount)}</span></div>` : ''}
+              <div class="total"><span>Total</span><span>${formatCRC(scopeAmounts.totalCRC)}</span></div>
+            </div>
+
+            <div class="section-title">Pagos</div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Método de pago</th>
+                  <th style="text-align:right;">Monto</th>
+                </tr>
+              </thead>
+              <tbody>${paymentsHtml}</tbody>
+            </table>
+
+            <div class="totals">
+              <div><span>Total pagado</span><span>${formatCRC(totalPagado)}</span></div>
+              ${totalVuelto > 0 ? `<div><span>Vuelto</span><span>${formatCRC(totalVuelto)}</span></div>` : ''}
+            </div>
+          </div>
             <div class="total"><span>Total</span><span>${formatCRC(scopeAmounts.totalCRC)}</span></div>
             <div><span>Pagado</span><span>${formatCRC(scopeAmounts.paidCRC)}</span></div>
             <div><span>Pendiente</span><span>${formatCRC(scopeAmounts.pendingCRC)}</span></div>

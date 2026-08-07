@@ -17,6 +17,19 @@ import type {
   UpdatePedidoDto,
 } from '@/types/pedido.types'
 
+export interface KitchenPrintLinePayload {
+  producto: string
+  cantidad: number
+  observacion?: string
+}
+
+export interface SendToKitchenPayload {
+  mesaNumero?: number
+  pedidoId?: number
+  codigo?: string
+  productos: KitchenPrintLinePayload[]
+}
+
 function normalizeSplitItems(data: {
   items?: PedidoAccountSplitItemDto[]
   detailIds?: number[]
@@ -251,6 +264,7 @@ function buildPaymentPayloadVariants(data: CreatePagoPedidoDto) {
       vueltoColones: data.vueltoColones,
       tipoCambioId: data.tipoCambioId,
       cuentaPedidoId: accountScopeId,
+      pedidoCuentaId: accountScopeId,
       cuentaId: accountScopeId,
       accountId: accountScopeId,
       aplicarServicio: data.aplicarServicio,
@@ -271,6 +285,7 @@ function buildPaymentPayloadVariants(data: CreatePagoPedidoDto) {
       vuelto_colones: data.vueltoColones,
       tipo_cambio_id: data.tipoCambioId,
       cuenta_pedido_id: accountScopeId,
+      pedido_cuenta_id: accountScopeId,
       cuenta_id: accountScopeId,
       account_id: accountScopeId,
       aplicar_servicio: data.aplicarServicio,
@@ -468,7 +483,8 @@ export const pedidosService = {
   getById: (id: number) => api.get<Pedido>(`/pedidos/${id}`),
   create: (data: CreatePedidoDto) => api.post<Pedido>('/pedidos', data),
   update: (id: number, data: UpdatePedidoDto) => api.put<Pedido>(`/pedidos/${id}`, data),
-  sendToKitchen: (id: number) => api.post<Pedido>(`/pedidos/${id}/enviar-cocina`),
+  sendToKitchen: (id: number, payload?: SendToKitchenPayload) =>
+    api.post<Pedido>(`/pedidos/${id}/enviar-cocina`, payload),
   reprint: (id: number) => reprintPedidoWithFallback(id),
   bill: (id: number) => api.post<Pedido>(`/pedidos/${id}/facturar`),
   delete: (id: number) => api.delete(`/pedidos/${id}`),

@@ -30,6 +30,7 @@ import { toast } from 'react-toastify'
 import { useAuth } from '@/hooks/useAuth'
 import FacturacionModal from '@/components/facturacion/FacturacionModal'
 import { menuService } from '@/services/menu.service'
+import type { SendToKitchenPayload } from '@/services/pedidos.service'
 import { pedidosService } from '@/services/pedidos.service'
 import { reservacionesService } from '@/services/reservaciones.service'
 import { mesaSchema } from '@/schemas/mesa.schema'
@@ -1185,7 +1186,21 @@ export default function MesasPage() {
 
     setSaving(true)
     try {
-      await pedidosService.sendToKitchen(pedidoId)
+      const kitchenPayload: SendToKitchenPayload = {
+        pedidoId,
+        codigo: selectedPedido.codigo,
+        mesaNumero:
+          Number(selectedMesa?.numero ?? selectedPedido.mesa?.numero ?? 0) > 0
+            ? Number(selectedMesa?.numero ?? selectedPedido.mesa?.numero)
+            : undefined,
+        productos: currentPedidoDetails.map((detail) => ({
+          producto: detail.producto?.nombre ?? detail.productoNombre ?? `Producto #${detail.productoId}`,
+          cantidad: Number(detail.cantidad ?? 0) > 0 ? Number(detail.cantidad) : 1,
+          observacion: detail.observacion?.trim() || undefined,
+        })),
+      }
+
+      await pedidosService.sendToKitchen(pedidoId, kitchenPayload)
       toast.success('Comanda enviada a cocina.')
       await Promise.all([loadMesaPedido(Number(selectedMesa?.id ?? selectedPedido.mesaId ?? 0)), loadMesas()])
     } catch (requestError) {
