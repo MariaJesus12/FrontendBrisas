@@ -721,15 +721,44 @@ function getPedidoMesaListLabel(pedido: Pedido): string {
   return String(pedido.tipo).toUpperCase() === 'LLEVAR' ? 'Llevar' : 'Mesa'
 }
 
-function getPedidoClienteNombre(pedido: Pedido): string {
+function extractPedidoClienteNombre(pedido: Pedido): string {
   const rawRecord = pedido as unknown as Record<string, unknown>
+  const clienteRecord =
+    typeof rawRecord.cliente === 'object' && rawRecord.cliente !== null
+      ? (rawRecord.cliente as Record<string, unknown>)
+      : null
+
   const nombre =
     rawRecord.clienteNombre ??
     rawRecord.cliente_nombre ??
     rawRecord.nombreCliente ??
-    rawRecord.cliente
+    rawRecord.nombre_cliente ??
+    clienteRecord?.nombre
 
-  if (typeof nombre === 'string' && nombre.trim()) {
+  return typeof nombre === 'string' ? nombre.trim() : ''
+}
+
+function extractPedidoClienteTelefono(pedido: Pedido): string {
+  const rawRecord = pedido as unknown as Record<string, unknown>
+  const clienteRecord =
+    typeof rawRecord.cliente === 'object' && rawRecord.cliente !== null
+      ? (rawRecord.cliente as Record<string, unknown>)
+      : null
+
+  const telefono =
+    rawRecord.clienteTelefono ??
+    rawRecord.cliente_telefono ??
+    rawRecord.telefonoCliente ??
+    rawRecord.telefono_cliente ??
+    rawRecord.telefono ??
+    clienteRecord?.telefono
+
+  return typeof telefono === 'string' ? telefono.trim() : ''
+}
+
+function getPedidoClienteNombre(pedido: Pedido): string {
+  const nombre = extractPedidoClienteNombre(pedido)
+  if (nombre) {
     return nombre
   }
 
@@ -737,14 +766,8 @@ function getPedidoClienteNombre(pedido: Pedido): string {
 }
 
 function getPedidoClienteTelefono(pedido: Pedido): string {
-  const rawRecord = pedido as unknown as Record<string, unknown>
-  const telefono =
-    rawRecord.clienteTelefono ??
-    rawRecord.cliente_telefono ??
-    rawRecord.telefonoCliente ??
-    rawRecord.telefono
-
-  if (typeof telefono === 'string' && telefono.trim()) {
+  const telefono = extractPedidoClienteTelefono(pedido)
+  if (telefono) {
     return telefono
   }
 
@@ -798,6 +821,11 @@ function getStatusChipSx(status: string) {
 function canDeletePedido(estado: string): boolean {
   const normalized = estado.trim().toUpperCase()
   return normalized === 'BORRADOR' || normalized === 'CANCELADO'
+}
+
+function canMutatePedido(estado: string): boolean {
+  const normalized = estado.trim().toUpperCase()
+  return normalized === 'BORRADOR' || normalized === 'EN_PREPARACION' || normalized === 'LISTO' || normalized === 'COCINA'
 }
 
 function getActionButtonSx(color: string) {
@@ -963,7 +991,19 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
       const clientesResponse = await clientesService.getAll({ active: true }).catch(() => ({ data: [] as unknown[] }))
       setClientes(unwrapClientesPayload(clientesResponse.data))
       if (usersResponse) {
-        setUsers(unwrapArrayPayload<CreatedUser>(usersResponse.data))
+        const normalizedUsers = unwrapArrayPayload<CreatedUser>(usersResponse.data)
+        if (normalizedUsers.length > 0) {
+          setUsers(normalizedUsers)
+        } else if (user) {
+          setUsers([
+            {
+              id: user.id,
+              nombre: user.nombre,
+              email: user.email,
+              rol: user.rol,
+            },
+          ])
+        }
       } else if (user) {
         setUsers([
           {
@@ -1038,6 +1078,14 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
 
     return { totalPedidos, borradores, facturados, conMesa, paraLlevar }
   }, [pedidos])
+
+  const canManageSelectedPedido = useMemo(() => {
+    if (!selectedPedido) {
+      return false
+    }
+
+    return canMutatePedido(String(selectedPedido.estado))
+  }, [selectedPedido])
 
   const sortedPedidos = useMemo(() => {
     return [...pedidos].sort((left, right) => {
@@ -1276,15 +1324,19 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
   }
 
   function openEditDialog(pedido: Pedido) {
+    const resolvedUserId = pedido.usuarioId ? String(pedido.usuarioId) : user ? String(user.id) : ''
+    const rawClienteNombre = extractPedidoClienteNombre(pedido)
+    const rawClienteTelefono = extractPedidoClienteTelefono(pedido)
+
     setPedidoDialogMode('edit')
     setSelectedPedido(pedido)
     setPedidoForm({
       codigo: pedido.codigo ?? '',
       clienteId: pedido.clienteId ? String(pedido.clienteId) : '',
-      clienteNombre: getPedidoClienteNombre(pedido),
-      clienteTelefono: getPedidoClienteTelefono(pedido),
+      clienteNombre: rawClienteNombre,
+      clienteTelefono: rawClienteTelefono,
       mesaId: pedido.mesaId ? String(pedido.mesaId) : '',
-      usuarioId: pedido.usuarioId ? String(pedido.usuarioId) : '',
+      usuarioId: resolvedUserId,
       tipo: isTakeoutMode ? 'LLEVAR' : String(pedido.tipo).toUpperCase() === 'LLEVAR' ? 'LLEVAR' : 'MESA',
       estado: normalizeOrderState(String(pedido.estado)),
       impuesto: String(pedido.impuesto ?? 0),
@@ -1386,7 +1438,10 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
       codigo: isTakeoutMode ? undefined : pedidoForm.codigo.trim() || undefined,
       clienteId: resolvedClienteId,
       mesaId: pedidoForm.tipo === 'MESA' ? pedidoForm.mesaId : undefined,
-      usuarioId: isTakeoutMode ? String(user?.id ?? pedidoForm.usuarioId) : pedidoForm.usuarioId,
+      usuarioId:
+        isTakeoutMode && currentRole !== 'ADMIN'
+          ? String(user?.id ?? pedidoForm.usuarioId)
+          : pedidoForm.usuarioId || String(user?.id ?? ''),
       tipo: pedidoForm.tipo,
       estado: pedidoForm.estado,
       impuesto: isTakeoutMode ? '0' : pedidoForm.impuesto,
@@ -1486,12 +1541,22 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
   }
 
   function openCreateDetailDialog() {
+    if (!canManageSelectedPedido) {
+      toast.info('Solo puedes editar líneas en pedidos abiertos.')
+      return
+    }
+
     setEditingDetailId(null)
     setDetailForm({ codigoProducto: '', productoId: '', cantidad: '1', precioUnitario: '', observacion: '' })
     setDetailDialogOpen(true)
   }
 
   function openEditDetailDialog(detail: PedidoDetalle) {
+    if (!canManageSelectedPedido) {
+      toast.info('Solo puedes editar líneas en pedidos abiertos.')
+      return
+    }
+
     setEditingDetailId(detail.id)
     const matchedProduct = products.find((product) => product.id === detail.productoId)
     setDetailForm({
@@ -1506,6 +1571,11 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
 
   async function handleSaveDetail() {
     if (!selectedPedido) {
+      return
+    }
+
+    if (!canManageSelectedPedido) {
+      toast.info('El pedido ya no admite cambios en sus líneas.')
       return
     }
 
@@ -1554,6 +1624,11 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
       return
     }
 
+    if (!canManageSelectedPedido) {
+      toast.info('El pedido ya no admite cambios en sus líneas.')
+      return
+    }
+
     setSaving(true)
     try {
       await pedidosService.deleteDetail(selectedPedido.id, detail.id)
@@ -1571,12 +1646,22 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
   }
 
   function openCreatePaymentDialog() {
+    if (!canManageSelectedPedido) {
+      toast.info('Solo puedes registrar pagos en pedidos abiertos.')
+      return
+    }
+
     setEditingPaymentId(null)
     setPaymentForm(initialPaymentForm)
     setPaymentDialogOpen(true)
   }
 
   function openEditPaymentDialog(payment: PagoPedido) {
+    if (!canManageSelectedPedido) {
+      toast.info('Solo puedes editar pagos en pedidos abiertos.')
+      return
+    }
+
     setEditingPaymentId(payment.id)
     setPaymentForm({
       metodoPagoId: String(payment.metodoPagoId),
@@ -1588,6 +1673,11 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
 
   async function handleSavePayment() {
     if (!selectedPedido) {
+      return
+    }
+
+    if (!canManageSelectedPedido) {
+      toast.info('El pedido ya no admite cambios de pagos.')
       return
     }
 
@@ -1630,6 +1720,11 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
 
   async function handleDeletePayment(payment: PagoPedido) {
     if (!selectedPedido) {
+      return
+    }
+
+    if (!canManageSelectedPedido) {
+      toast.info('El pedido ya no admite cambios de pagos.')
       return
     }
 
@@ -2017,9 +2112,24 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
               label="Cliente"
               value={filterForm.clienteId}
               onChange={(event) => setFilterForm((current) => ({ ...current, clienteId: event.target.value }))}
+              slotProps={{
+                select: {
+                  MenuProps: {
+                    slotProps: {
+                      paper: {
+                        sx: {
+                          backgroundColor: '#1b120e',
+                          color: COLOR_TEXT,
+                          border: '1px solid rgba(212,175,55,0.28)',
+                        },
+                      },
+                    },
+                  },
+                },
+              }}
               sx={{
                 '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
-                '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                '& .MuiOutlinedInput-root': { color: COLOR_TEXT, backgroundColor: 'rgba(255,255,255,0.03)' },
               }}
             >
               <MenuItem value="">Todos</MenuItem>
@@ -2032,7 +2142,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                 ))}
             </TextField>
 
-            {isTakeoutMode ? (
+            {isTakeoutMode && currentRole !== 'ADMIN' ? (
               <TextField
                 fullWidth
                 label="Usuario"
@@ -2050,9 +2160,24 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                 label="Usuario"
                 value={filterForm.usuarioId}
                 onChange={(event) => setFilterForm((current) => ({ ...current, usuarioId: event.target.value }))}
+                slotProps={{
+                  select: {
+                    MenuProps: {
+                      slotProps: {
+                        paper: {
+                          sx: {
+                            backgroundColor: '#1b120e',
+                            color: COLOR_TEXT,
+                            border: '1px solid rgba(212,175,55,0.28)',
+                          },
+                        },
+                      },
+                    },
+                  },
+                }}
                 sx={{
                   '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
-                  '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                  '& .MuiOutlinedInput-root': { color: COLOR_TEXT, backgroundColor: 'rgba(255,255,255,0.03)' },
                 }}
               >
                 <MenuItem value="">Todos</MenuItem>
@@ -2251,14 +2376,8 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                         <Tooltip title="Editar pedido">
                           <IconButton
                             size="small"
-                            onClick={() => {
-                              if (isTakeoutMode) {
-                                void openDetailsDialog(pedido)
-                                return
-                              }
-
-                              openEditDialog(pedido)
-                            }}
+                            onClick={() => openEditDialog(pedido)}
+                            disabled={saving || !canMutatePedido(String(pedido.estado))}
                             sx={getActionButtonSx(COLOR_GOLD)}
                           >
                             <EditIcon />
@@ -2443,7 +2562,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                 </>
               ) : null}
 
-              {isTakeoutMode ? null : (
+              {isTakeoutMode && currentRole !== 'ADMIN' ? null : (
                 <TextField
                   select
                   label="Usuario"
@@ -2580,6 +2699,10 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                                 sx={{
                                   '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
                                   '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                                  '& .MuiInputBase-input.Mui-disabled': {
+                                    color: COLOR_TEXT,
+                                    WebkitTextFillColor: COLOR_TEXT,
+                                  },
                                 }}
                               />
                             </>
@@ -2590,9 +2713,24 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                               value={line.productoId}
                               onChange={(event) => applyProductSelectionToLine(index, event.target.value)}
                               fullWidth
+                              slotProps={{
+                                select: {
+                                  MenuProps: {
+                                    slotProps: {
+                                      paper: {
+                                        sx: {
+                                          backgroundColor: '#1b120e',
+                                          color: COLOR_TEXT,
+                                          border: '1px solid rgba(212,175,55,0.28)',
+                                        },
+                                      },
+                                    },
+                                  },
+                                },
+                              }}
                               sx={{
                                 '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
-                                '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                                '& .MuiOutlinedInput-root': { color: COLOR_TEXT, backgroundColor: 'rgba(255,255,255,0.03)' },
                               }}
                             >
                               <MenuItem value="">Selecciona un producto</MenuItem>
@@ -2784,7 +2922,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                               <IconButton onClick={() => openEditDetailDialog(detail)} sx={{ color: COLOR_GOLD }}>
                                 <EditIcon />
                               </IconButton>
-                              <IconButton onClick={() => void handleDeleteDetail(detail)} sx={{ color: '#f39ca8' }}>
+                              <IconButton onClick={() => void handleDeleteDetail(detail)} sx={{ color: '#f39ca8' }} disabled={!canManageSelectedPedido}>
                                 <DeleteIcon />
                               </IconButton>
                             </Stack>
@@ -2807,7 +2945,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
               >
                 <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
                   <Typography sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Pagos</Typography>
-                  <Button startIcon={<AttachMoneyIcon />} variant="outlined" onClick={openCreatePaymentDialog} sx={{ color: COLOR_GOLD }}>
+                  <Button startIcon={<AttachMoneyIcon />} variant="outlined" onClick={openCreatePaymentDialog} sx={{ color: COLOR_GOLD }} disabled={!canManageSelectedPedido}>
                     Registrar pago
                   </Button>
                 </Stack>
@@ -2843,7 +2981,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                               <IconButton onClick={() => openEditPaymentDialog(payment)} sx={{ color: COLOR_GOLD }}>
                                 <EditIcon />
                               </IconButton>
-                              <IconButton onClick={() => void handleDeletePayment(payment)} sx={{ color: '#f39ca8' }}>
+                              <IconButton onClick={() => void handleDeletePayment(payment)} sx={{ color: '#f39ca8' }} disabled={!canManageSelectedPedido}>
                                 <DeleteIcon />
                               </IconButton>
                             </Stack>
@@ -2862,7 +3000,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
             <Button
               variant="outlined"
               onClick={() => void handleSendToKitchenFromDetails()}
-              disabled={saving || loadingDetails || currentDetails.length === 0}
+              disabled={saving || loadingDetails || currentDetails.length === 0 || !canManageSelectedPedido}
               sx={{ color: COLOR_GOLD, borderColor: 'rgba(212,175,55,0.35)' }}
             >
               Enviar a cocina
@@ -2872,7 +3010,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
             <Button
               variant="outlined"
               onClick={openInvoicePreview}
-              disabled={saving || loadingDetails || currentDetails.length === 0}
+              disabled={saving || loadingDetails || currentDetails.length === 0 || !canManageSelectedPedido}
               sx={{ color: COLOR_TEXT, borderColor: 'rgba(243,233,210,0.35)' }}
             >
               Facturar
@@ -2988,7 +3126,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
           <Button onClick={() => setDetailDialogOpen(false)} sx={{ color: COLOR_TEXT }}>
             Cancelar
           </Button>
-          <Button variant="contained" onClick={() => void handleSaveDetail()} disabled={saving} sx={{ backgroundColor: COLOR_MAROON }}>
+          <Button variant="contained" onClick={() => void handleSaveDetail()} disabled={saving || !canManageSelectedPedido} sx={{ backgroundColor: COLOR_MAROON }}>
             Guardar
           </Button>
         </DialogActions>
@@ -3045,7 +3183,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
           <Button onClick={() => setPaymentDialogOpen(false)} sx={{ color: COLOR_TEXT }}>
             Cancelar
           </Button>
-          <Button variant="contained" onClick={() => void handleSavePayment()} disabled={saving} sx={{ backgroundColor: COLOR_MAROON }}>
+          <Button variant="contained" onClick={() => void handleSavePayment()} disabled={saving || !canManageSelectedPedido} sx={{ backgroundColor: COLOR_MAROON }}>
             Guardar
           </Button>
         </DialogActions>

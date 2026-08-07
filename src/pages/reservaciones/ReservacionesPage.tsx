@@ -41,6 +41,7 @@ import type { CreateReservacionDto, Reservacion, ReservaMesaEstado } from '@/typ
 const COLOR_GOLD = '#D4AF37'
 const COLOR_TEXT = '#F3E9D2'
 const COLOR_MAROON = '#8F1D2E'
+const COLOR_MUTED = 'rgba(243,233,210,0.78)'
 
 interface ReservacionFormState {
   clienteId: string
@@ -1407,8 +1408,10 @@ export default function ReservacionesPage() {
       </Paper>
 
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>{editingReservaId ? 'Editar reserva' : `Nueva reserva${selectedMesa ? ` - Mesa #${selectedMesa.numero}` : ''}`}</DialogTitle>
-        <DialogContent>
+        <DialogTitle sx={{ backgroundColor: '#160f0c', color: COLOR_GOLD, fontWeight: 800 }}>
+          {editingReservaId ? 'Editar reserva' : `Nueva reserva${selectedMesa ? ` - Mesa #${selectedMesa.numero}` : ''}`}
+        </DialogTitle>
+        <DialogContent sx={{ backgroundColor: '#160f0c', pt: 3 }}>
           <Stack spacing={1.5} sx={{ pt: 1 }}>
             <TextField
               label="Mesa"
@@ -1416,6 +1419,10 @@ export default function ReservacionesPage() {
               value={form.mesaId}
               onChange={(event) => setForm((current) => ({ ...current, mesaId: event.target.value }))}
               fullWidth
+              sx={{
+                '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+              }}
             >
               {mesaOptions.map((mesa) => (
                 <MenuItem key={mesa.mesaId} value={String(mesa.mesaId)}>
@@ -1440,12 +1447,20 @@ export default function ReservacionesPage() {
                 }
               }}
               fullWidth
+              sx={{
+                '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+              }}
             />
             <TextField
               label="Teléfono"
               value={form.clienteTelefono}
               onChange={(event) => setForm((current) => ({ ...current, clienteTelefono: event.target.value }))}
               fullWidth
+              sx={{
+                '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+              }}
             />
             <Stack direction="row" spacing={1} sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
               <Button
@@ -1471,7 +1486,7 @@ export default function ReservacionesPage() {
                 Buscar cliente
               </Button>
               {form.clienteId ? (
-                <Typography variant="caption" sx={{ color: 'rgba(243,233,210,0.78)' }}>
+                <Typography variant="caption" sx={{ color: COLOR_MUTED }}>
                   Cliente vinculado #{form.clienteId}
                 </Typography>
               ) : null}
@@ -1484,6 +1499,10 @@ export default function ReservacionesPage() {
                 onChange={(event) => setForm((current) => ({ ...current, fecha: event.target.value }))}
                 fullWidth
                 slotProps={{ inputLabel: { shrink: true } }}
+                sx={{
+                  '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                  '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                }}
               />
               <TextField
                 label="Hora"
@@ -1492,6 +1511,10 @@ export default function ReservacionesPage() {
                 onChange={(event) => setForm((current) => ({ ...current, hora: event.target.value }))}
                 fullWidth
                 slotProps={{ inputLabel: { shrink: true } }}
+                sx={{
+                  '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                  '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                }}
               />
             </Stack>
             <TextField
@@ -1500,6 +1523,10 @@ export default function ReservacionesPage() {
               value={form.cantidadPersonas}
               onChange={(event) => setForm((current) => ({ ...current, cantidadPersonas: event.target.value }))}
               fullWidth
+              sx={{
+                '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+              }}
             />
             <TextField
               label="Estado"
@@ -1507,6 +1534,10 @@ export default function ReservacionesPage() {
               value={form.estado}
               onChange={(event) => setForm((current) => ({ ...current, estado: event.target.value }))}
               fullWidth
+              sx={{
+                '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+              }}
             >
               {estadoOptions.map((estado) => (
                 <MenuItem key={estado} value={estado}>
@@ -1521,11 +1552,15 @@ export default function ReservacionesPage() {
               fullWidth
               multiline
               minRows={2}
+              sx={{
+                '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+              }}
             />
           </Stack>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDialogOpen(false)}>Cancelar</Button>
+        <DialogActions sx={{ backgroundColor: '#160f0c', p: 2.5 }}>
+          <Button onClick={() => setDialogOpen(false)} sx={{ color: COLOR_TEXT }}>Cancelar</Button>
           <Button
             variant="contained"
             disabled={saving}
@@ -1540,10 +1575,10 @@ export default function ReservacionesPage() {
       </Dialog>
 
       <Dialog open={estadoDialogOpen} onClose={() => setEstadoDialogOpen(false)} fullWidth maxWidth="xs">
-        <DialogTitle>Cambiar estado de reserva</DialogTitle>
-        <DialogContent>
+        <DialogTitle sx={{ backgroundColor: '#160f0c', color: COLOR_GOLD, fontWeight: 800 }}>Cambiar estado de reserva</DialogTitle>
+        <DialogContent sx={{ backgroundColor: '#160f0c', pt: 3 }}>
           <Stack spacing={1.5} sx={{ pt: 1 }}>
-            <Typography variant="body2" sx={{ color: 'rgba(0,0,0,0.75)' }}>
+            <Typography variant="body2" sx={{ color: COLOR_MUTED }}>
               {estadoTargetReserva
                 ? `${estadoTargetReserva.clienteNombre ?? estadoTargetReserva.nombreCliente ?? 'Cliente'} - Mesa #${estadoTargetReserva.mesa?.numero ?? estadoTargetReserva.mesaId}`
                 : ''}
@@ -1554,6 +1589,10 @@ export default function ReservacionesPage() {
               value={estadoValue}
               onChange={(event) => setEstadoValue(event.target.value)}
               fullWidth
+              sx={{
+                '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+              }}
             >
               {estadoOptions.map((estado) => (
                 <MenuItem key={estado} value={estado}>
@@ -1563,14 +1602,15 @@ export default function ReservacionesPage() {
             </TextField>
           </Stack>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setEstadoDialogOpen(false)}>Cancelar</Button>
+        <DialogActions sx={{ backgroundColor: '#160f0c', p: 2.5 }}>
+          <Button onClick={() => setEstadoDialogOpen(false)} sx={{ color: COLOR_TEXT }}>Cancelar</Button>
           <Button
             variant="contained"
             disabled={saving || !estadoTargetReserva}
             onClick={() => {
               void handleSaveEstado()
             }}
+            sx={{ backgroundColor: COLOR_MAROON, '&:hover': { backgroundColor: '#a42535' } }}
           >
             Actualizar estado
           </Button>

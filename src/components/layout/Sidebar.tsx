@@ -11,12 +11,15 @@ import {
 } from '@mui/material'
 import { useNavigate, useLocation } from 'react-router-dom'
 import DashboardIcon from '@mui/icons-material/Dashboard'
-import EventSeatIcon from '@mui/icons-material/EventSeat'
+import TableRestaurantIcon from '@mui/icons-material/TableRestaurant'
 import RestaurantMenuIcon from '@mui/icons-material/RestaurantMenu'
 import StarIcon from '@mui/icons-material/Star'
-import ReceiptIcon from '@mui/icons-material/Receipt'
+import ReceiptLongIcon from '@mui/icons-material/ReceiptLong'
+import TakeoutDiningIcon from '@mui/icons-material/TakeoutDining'
 import PeopleAltIcon from '@mui/icons-material/PeopleAlt'
 import CampaignIcon from '@mui/icons-material/Campaign'
+import QueryStatsIcon from '@mui/icons-material/QueryStats'
+import EventAvailableIcon from '@mui/icons-material/EventAvailable'
 import { useAuth } from '@/hooks/useAuth'
 import { normalizeRole } from '@/utils/roles'
 
@@ -26,21 +29,23 @@ const COLOR_TEXT = '#F3E9D2'
 
 const adminNavItems = [
   { label: 'Dashboard', path: '/dashboard', icon: <DashboardIcon /> },
-  { label: 'Mesas', path: '/mesas', icon: <EventSeatIcon /> },
-  { label: 'Reservaciones', path: '/reservaciones', icon: <EventSeatIcon /> },
+  { label: 'Estadísticas productos', path: '/admin/estadisticas-productos', icon: <QueryStatsIcon /> },
+  { label: 'Mesas', path: '/mesas', icon: <TableRestaurantIcon /> },
+  { label: 'Reservaciones', path: '/reservaciones', icon: <EventAvailableIcon /> },
+  { label: 'Pedidos para llevar', path: '/pedidos-llevar', icon: <TakeoutDiningIcon /> },
   { label: 'Menú', path: '/menu', icon: <RestaurantMenuIcon /> },
   { label: 'Plato del Mes', path: '/plato-del-mes', icon: <StarIcon /> },
   { label: 'Anuncios', path: '/anuncios', icon: <CampaignIcon /> },
-  { label: 'Pedidos', path: '/pedidos', icon: <ReceiptIcon /> },
+  { label: 'Pedidos', path: '/pedidos', icon: <ReceiptLongIcon /> },
   { label: 'Usuarios', path: '/usuarios', icon: <PeopleAltIcon /> },
 ]
 
 const staffNavItems = [
   { label: 'Dashboard', path: '/dashboard', icon: <DashboardIcon /> },
-  { label: 'Mesas', path: '/mesas', icon: <EventSeatIcon /> },
-  { label: 'Pedidos para llevar', path: '/pedidos-llevar', icon: <ReceiptIcon /> },
-  { label: 'Reservaciones', path: '/reservaciones', icon: <EventSeatIcon /> },
-  { label: 'Pedidos', path: '/pedidos', icon: <ReceiptIcon /> },
+  { label: 'Mesas', path: '/mesas', icon: <TableRestaurantIcon /> },
+  { label: 'Pedidos para llevar', path: '/pedidos-llevar', icon: <TakeoutDiningIcon /> },
+  { label: 'Reservaciones', path: '/reservaciones', icon: <EventAvailableIcon /> },
+  { label: 'Pedidos', path: '/pedidos', icon: <ReceiptLongIcon /> },
 ]
 
 export default function Sidebar() {
@@ -70,9 +75,9 @@ export default function Sidebar() {
       <Toolbar>
         <Typography
           variant="h6"
-          sx={{ fontWeight: 'bold', color: COLOR_GOLD, fontFamily: '"Playfair Display", serif' }}
+          sx={{ fontWeight: 'bold', color: COLOR_GOLD, fontFamily: '"Playfair Display", serif', lineHeight: 1.15 }}
         >
-          Brisas
+          Brisas del lago
         </Typography>
       </Toolbar>
       <Divider sx={{ borderColor: 'rgba(212,175,55,0.3)' }} />

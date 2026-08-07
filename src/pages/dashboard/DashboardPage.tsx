@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import axios from 'axios'
-import { Alert, Box, Button, Chip, Grid, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Chip, Grid, Paper, Stack, TextField, Typography } from '@mui/material'
 import EventSeatIcon from '@mui/icons-material/EventSeat'
 import ReceiptIcon from '@mui/icons-material/Receipt'
 import RestaurantMenuIcon from '@mui/icons-material/RestaurantMenu'
 import StarIcon from '@mui/icons-material/Star'
 import PeopleAltIcon from '@mui/icons-material/PeopleAlt'
 import CampaignIcon from '@mui/icons-material/Campaign'
+import QueryStatsIcon from '@mui/icons-material/QueryStats'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { normalizeRole } from '@/utils/roles'
@@ -183,8 +184,10 @@ function unwrapTipoCambioPayload(payload: unknown): TipoCambio[] {
 }
 
 const adminCards = [
+  { label: 'Estadísticas productos', icon: QueryStatsIcon, path: '/admin/estadisticas-productos' },
   { label: 'Mesas', icon: EventSeatIcon, path: '/mesas' },
   { label: 'Reservaciones', icon: EventSeatIcon, path: '/reservaciones' },
+  { label: 'Pedidos para llevar', icon: ReceiptIcon, path: '/pedidos-llevar' },
   { label: 'Pedidos', icon: ReceiptIcon, path: '/pedidos' },
   { label: 'Platos en Menú', icon: RestaurantMenuIcon, path: '/menu' },
   { label: 'Plato del Mes', icon: StarIcon, path: '/plato-del-mes' },
@@ -274,43 +277,6 @@ export default function DashboardPage() {
       const backendMessage =
         axios.isAxiosError(error) && error.response ? extractBackendMessage(error.response.data) : ''
       setTipoCambioError(backendMessage || 'No fue posible cargar los tipos de cambio.')
-    } finally {
-      setTipoCambioLoading(false)
-    }
-  }
-
-  async function handleSelectTipoCambio(idValue: string) {
-    setSelectedTipoCambioId(idValue)
-    if (!idValue) {
-      setTipoCambioForm(initialTipoCambioForm)
-      return
-    }
-
-    const id = Number(idValue)
-    if (!Number.isFinite(id) || id <= 0) {
-      return
-    }
-
-    setTipoCambioLoading(true)
-    setTipoCambioError(null)
-
-    try {
-      const response = await tipoCambioService.getById(id)
-      const record = normalizeTipoCambioRecord(response.data)
-      if (!record) {
-        setTipoCambioError('No se pudo leer el tipo de cambio seleccionado.')
-        return
-      }
-
-      setTipoCambioForm({
-        compra: String(record.compra),
-        venta: String(record.venta),
-        fecha: record.fecha ?? '',
-      })
-    } catch (error) {
-      const backendMessage =
-        axios.isAxiosError(error) && error.response ? extractBackendMessage(error.response.data) : ''
-      setTipoCambioError(backendMessage || 'No fue posible cargar el tipo de cambio por ID.')
     } finally {
       setTipoCambioLoading(false)
     }
@@ -546,7 +512,19 @@ export default function DashboardPage() {
                       const label = moneda.codigo ?? moneda.nombre ?? `Moneda ${moneda.id}`
                       const chipLabel = moneda.simbolo ? `${label} (${moneda.simbolo})` : label
 
-                      return <Chip key={moneda.id} label={chipLabel} size="small" />
+                      return (
+                        <Chip
+                          key={moneda.id}
+                          label={chipLabel}
+                          size="small"
+                          sx={{
+                            color: COLOR_TEXT,
+                            backgroundColor: 'rgba(212,175,55,0.14)',
+                            border: '1px solid rgba(212,175,55,0.3)',
+                            '& .MuiChip-label': { color: COLOR_TEXT },
+                          }}
+                        />
+                      )
                     })
                   ) : (
                     <Typography sx={{ color: COLOR_TEXT }}>No hay monedas disponibles.</Typography>
@@ -564,26 +542,6 @@ export default function DashboardPage() {
                 gap: 2,
               }}
             >
-              <TextField
-                select
-                label="Registro"
-                value={selectedTipoCambioId}
-                onChange={(event) => void handleSelectTipoCambio(event.target.value)}
-                fullWidth
-                disabled={tipoCambioLoading || tipoCambioSaving}
-                sx={{
-                  '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
-                  '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
-                }}
-              >
-                <MenuItem value="">Nuevo registro</MenuItem>
-                {tipoCambioList.map((item) => (
-                  <MenuItem key={item.id} value={item.id}>
-                    #{item.id} • C:{item.compra.toFixed(4)} • V:{item.venta.toFixed(4)}
-                  </MenuItem>
-                ))}
-              </TextField>
-
               <TextField
                 label="Compra"
                 type="number"
@@ -629,7 +587,7 @@ export default function DashboardPage() {
                   setTipoCambioForm(initialTipoCambioForm)
                 }}
                 sx={{ color: COLOR_TEXT, borderColor: 'rgba(212,175,55,0.38)' }}
-                disabled={tipoCambioSaving}
+                disabled={tipoCambioSaving || tipoCambioLoading}
               >
                 Limpiar
               </Button>
@@ -637,14 +595,14 @@ export default function DashboardPage() {
                 variant="outlined"
                 onClick={() => void loadTipoCambioList()}
                 sx={{ color: COLOR_GOLD, borderColor: 'rgba(212,175,55,0.45)' }}
-                disabled={tipoCambioSaving}
+                disabled={tipoCambioSaving || tipoCambioLoading}
               >
                 Recargar
               </Button>
               <Button
                 variant="contained"
                 onClick={() => void handleCreateTipoCambio()}
-                disabled={tipoCambioSaving}
+                disabled={tipoCambioSaving || tipoCambioLoading}
                 sx={{ backgroundColor: COLOR_MAROON, '&:hover': { backgroundColor: '#a42535' } }}
               >
                 Agregar
@@ -652,7 +610,7 @@ export default function DashboardPage() {
               <Button
                 variant="contained"
                 onClick={() => void handleUpdateTipoCambio()}
-                disabled={tipoCambioSaving || !selectedTipoCambioId}
+                disabled={tipoCambioSaving || tipoCambioLoading || !selectedTipoCambioId}
                 sx={{
                   background: 'linear-gradient(135deg, #D4AF37 0%, #f2d36f 100%)',
                   color: '#1a1208',

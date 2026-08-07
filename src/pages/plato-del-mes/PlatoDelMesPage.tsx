@@ -678,7 +678,7 @@ export default function PlatoDelMesPage() {
                       <Stack spacing={1}>
                         <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
                           <Box>
-                            <Typography sx={{ fontFamily: '"Playfair Display", serif', fontSize: '1.25rem' }}>
+                            <Typography sx={{ fontFamily: '"Playfair Display", serif', fontSize: '1.25rem', color: COLOR_TEXT }}>
                               {product?.nombre ?? 'Producto'}
                             </Typography>
                             <Typography sx={{ color: COLOR_GOLD, fontWeight: 700 }}>
@@ -799,8 +799,28 @@ export default function PlatoDelMesPage() {
       )}
 
       <Dialog open={isDialogOpen} onClose={closeDialog} fullWidth maxWidth="sm">
-        <DialogTitle>{editingDishId === null ? 'Nuevo Plato del Mes' : 'Editar Plato del Mes'}</DialogTitle>
-        <DialogContent>
+        <DialogTitle sx={{ backgroundColor: '#160f0c', color: COLOR_GOLD, fontWeight: 800 }}>
+          {editingDishId === null ? 'Nuevo Plato del Mes' : 'Editar Plato del Mes'}
+        </DialogTitle>
+        <DialogContent
+          sx={{
+            backgroundColor: '#160f0c',
+            pt: 3,
+            '& .MuiInputLabel-root, & .MuiInputBase-input, & .MuiSelect-select, & .MuiFormHelperText-root': {
+              color: COLOR_TEXT,
+            },
+            '& .MuiInputBase-input': {
+              WebkitTextFillColor: COLOR_TEXT,
+            },
+            '& .MuiOutlinedInput-root': {
+              color: COLOR_TEXT,
+              backgroundColor: 'rgba(255,255,255,0.03)',
+            },
+            '& .MuiOutlinedInput-notchedOutline': {
+              borderColor: 'rgba(212,175,55,0.35)',
+            },
+          }}
+        >
           <Stack spacing={2} sx={{ pt: 1 }}>
             <TextField
               label="Producto"
@@ -857,11 +877,17 @@ export default function PlatoDelMesPage() {
             </TextField>
           </Stack>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={closeDialog} disabled={submitting}>
+        <DialogActions sx={{ backgroundColor: '#160f0c', p: 2.5 }}>
+          <Button onClick={closeDialog} disabled={submitting} sx={{ color: COLOR_TEXT }}>
             Cancelar
           </Button>
-          <Button onClick={handleSave} variant="contained" disabled={submitting} startIcon={<RestaurantMenuIcon />}>
+          <Button
+            onClick={handleSave}
+            variant="contained"
+            disabled={submitting}
+            startIcon={<RestaurantMenuIcon />}
+            sx={{ backgroundColor: COLOR_MAROON, '&:hover': { backgroundColor: '#a42535' } }}
+          >
             {submitting ? <CircularProgress size={18} color="inherit" /> : 'Guardar'}
           </Button>
         </DialogActions>

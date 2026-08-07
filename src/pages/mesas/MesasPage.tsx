@@ -563,6 +563,75 @@ function formatCurrency(value: number | null | undefined): string {
   }).format(safeValue)
 }
 
+function getDrawerActionButtonSx(variant: 'gold' | 'neutral' | 'danger' = 'gold') {
+  const palette =
+    variant === 'danger'
+      ? {
+          color: '#f39ca8',
+          borderColor: 'rgba(243,156,168,0.35)',
+          hoverBg: 'rgba(243,156,168,0.12)',
+          disabledColor: 'rgba(243,156,168,0.35)',
+          disabledBorder: 'rgba(243,156,168,0.2)',
+        }
+      : variant === 'neutral'
+        ? {
+            color: COLOR_TEXT,
+            borderColor: 'rgba(243,233,210,0.35)',
+            hoverBg: 'rgba(243,233,210,0.1)',
+            disabledColor: 'rgba(243,233,210,0.35)',
+            disabledBorder: 'rgba(243,233,210,0.2)',
+          }
+        : {
+            color: COLOR_GOLD,
+            borderColor: 'rgba(212,175,55,0.35)',
+            hoverBg: 'rgba(212,175,55,0.12)',
+            disabledColor: 'rgba(212,175,55,0.35)',
+            disabledBorder: 'rgba(212,175,55,0.2)',
+          }
+
+  return {
+    color: palette.color,
+    borderColor: palette.borderColor,
+    backgroundColor: 'rgba(255,255,255,0.02)',
+    fontWeight: 700,
+    borderRadius: 2,
+    '&:hover': {
+      borderColor: palette.color,
+      backgroundColor: palette.hoverBg,
+    },
+    '&.Mui-disabled': {
+      color: palette.disabledColor,
+      borderColor: palette.disabledBorder,
+      backgroundColor: 'rgba(255,255,255,0.015)',
+    },
+  }
+}
+
+function getDrawerIconButtonSx(variant: 'gold' | 'danger' = 'gold') {
+  const palette =
+    variant === 'danger'
+      ? {
+          color: '#f39ca8',
+          border: 'rgba(243,156,168,0.35)',
+          hoverBg: 'rgba(243,156,168,0.12)',
+        }
+      : {
+          color: COLOR_GOLD,
+          border: 'rgba(212,175,55,0.35)',
+          hoverBg: 'rgba(212,175,55,0.12)',
+        }
+
+  return {
+    color: palette.color,
+    border: `1px solid ${palette.border}`,
+    borderRadius: 1.5,
+    backgroundColor: 'rgba(255,255,255,0.02)',
+    '&:hover': {
+      backgroundColor: palette.hoverBg,
+    },
+  }
+}
+
 export default function MesasPage() {
   const { user } = useAuth()
   const currentRole = normalizeRole(user)
@@ -1360,6 +1429,15 @@ export default function MesasPage() {
           boxShadow: '0 12px 30px rgba(0,0,0,0.32)',
         }}
       >
+        <Box sx={{ p: 2.5, pb: 0 }}>
+          <Typography variant="h6" sx={{ color: COLOR_GOLD, fontWeight: 700 }}>
+            Estado de mesas
+          </Typography>
+          <Typography sx={{ color: COLOR_MUTED, mt: 0.5 }}>
+            Diseño unificado con reservas para identificar disponibilidad y abrir gestión del pedido.
+          </Typography>
+        </Box>
+
         {loading ? (
           <Box sx={{ py: 10, display: 'flex', justifyContent: 'center' }}>
             <CircularProgress sx={{ color: COLOR_GOLD }} />
@@ -1377,7 +1455,12 @@ export default function MesasPage() {
           <Box
             sx={{
               display: 'grid',
-              gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' },
+              gridTemplateColumns: {
+                xs: '1fr',
+                sm: 'repeat(2, minmax(0, 1fr))',
+                md: 'repeat(3, minmax(0, 1fr))',
+                lg: 'repeat(4, minmax(0, 1fr))',
+              },
               gap: 2,
               p: 2,
             }}
@@ -1402,43 +1485,29 @@ export default function MesasPage() {
                 sx={{
                   position: 'relative',
                   cursor: mesa.activa ? 'pointer' : 'default',
-                  overflow: 'visible',
-                  background: mesa.activa
-                    ? 'linear-gradient(180deg, rgba(25,16,12,0.98) 0%, rgba(14,10,8,0.96) 100%)'
-                    : 'linear-gradient(180deg, rgba(52,16,21,0.95) 0%, rgba(20,10,12,0.95) 100%)',
-                  border: mesa.activa ? '1px solid rgba(212,175,55,0.42)' : '1px solid rgba(243,156,168,0.35)',
-                  borderRadius: '42% / 18%',
-                  boxShadow: '0 14px 34px rgba(0,0,0,0.35)',
+                  borderRadius: 2,
+                  border: !mesa.activa
+                    ? '1px solid rgba(143,29,46,0.8)'
+                    : isMesaReserved
+                      ? '1px solid rgba(143,29,46,0.8)'
+                      : isMesaOccupied
+                        ? '1px solid rgba(245,158,11,0.75)'
+                        : '1px solid rgba(52,211,153,0.45)',
+                  backgroundColor: !mesa.activa
+                    ? 'rgba(143,29,46,0.17)'
+                    : isMesaReserved
+                      ? 'rgba(143,29,46,0.17)'
+                      : isMesaOccupied
+                        ? 'rgba(120,73,15,0.22)'
+                        : 'rgba(16,90,57,0.14)',
+                  boxShadow: '0 10px 26px rgba(0,0,0,0.35)',
                   color: COLOR_TEXT,
-                  minHeight: 240,
+                  minHeight: 250,
                   transition: 'transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease',
                   '&:hover': {
                     transform: mesa.activa ? 'translateY(-4px)' : 'none',
-                    boxShadow: mesa.activa ? '0 18px 40px rgba(0,0,0,0.45)' : '0 14px 34px rgba(0,0,0,0.35)',
-                    borderColor: mesa.activa ? 'rgba(212,175,55,0.72)' : 'rgba(243,156,168,0.35)',
-                  },
-                  '&::before': {
-                    content: '""',
-                    position: 'absolute',
-                    inset: '10px 14px auto',
-                    height: 14,
-                    borderRadius: '999px',
-                    background: mesa.activa
-                      ? 'linear-gradient(90deg, rgba(212,175,55,0.35) 0%, rgba(242,211,111,0.08) 100%)'
-                      : 'linear-gradient(90deg, rgba(243,156,168,0.22) 0%, rgba(243,156,168,0.05) 100%)',
-                    opacity: 0.9,
-                  },
-                  '&::after': {
-                    content: '""',
-                    position: 'absolute',
-                    left: '50%',
-                    bottom: -18,
-                    width: '58%',
-                    height: 16,
-                    transform: 'translateX(-50%)',
-                    borderRadius: '999px',
-                    background: 'rgba(0,0,0,0.28)',
-                    filter: 'blur(4px)',
+                    boxShadow: mesa.activa ? '0 16px 30px rgba(0,0,0,0.42)' : '0 10px 26px rgba(0,0,0,0.35)',
+                    borderColor: mesa.activa ? 'rgba(212,175,55,0.65)' : 'rgba(143,29,46,0.8)',
                   },
                 }}
               >
@@ -1448,17 +1517,19 @@ export default function MesasPage() {
                     flexDirection: 'column',
                     gap: 1.5,
                     height: '100%',
-                    pt: 4,
+                    pt: 2,
                     pb: 3,
                     px: 2.5,
                   }}
                 >
                   <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
                     <Box>
-                      <Typography sx={{ color: COLOR_GOLD, fontWeight: 900, fontSize: '2rem', lineHeight: 1 }}>
-                        #{mesa.numero}
+                      <Typography variant="h6" sx={{ color: COLOR_TEXT, fontWeight: 700 }}>
+                        Mesa #{mesa.numero}
                       </Typography>
-                      <Typography sx={{ color: COLOR_MUTED, mt: 0.5 }}>Capacidad {formatCapacity(mesa.capacidad)}</Typography>
+                      <Typography sx={{ color: 'rgba(243,233,210,0.88)', mt: 0.35 }}>
+                        Capacidad: {mesa.capacidad} persona(s)
+                      </Typography>
                     </Box>
                     <Chip
                       size="small"
@@ -1472,20 +1543,20 @@ export default function MesasPage() {
                               : 'Disponible'
                       }
                       sx={{
-                        backgroundColor: !mesa.activa
-                          ? 'rgba(143,29,46,0.18)'
+                        bgcolor: !mesa.activa
+                          ? 'rgba(143,29,46,0.88)'
                           : isMesaReserved
-                            ? 'rgba(143,29,46,0.2)'
+                            ? COLOR_MAROON
                             : isMesaOccupied
-                            ? 'rgba(255,152,0,0.2)'
-                            : 'rgba(76,175,80,0.14)',
+                              ? 'rgba(245,158,11,0.9)'
+                              : 'rgba(16,185,129,0.85)',
                         color: !mesa.activa
-                          ? '#f4a7b1'
+                          ? '#fff'
                           : isMesaReserved
-                            ? '#f7b3bd'
+                            ? '#fff'
                             : isMesaOccupied
-                              ? '#ffd28e'
-                              : '#9ae6a0',
+                              ? '#1a1208'
+                              : '#fff',
                         fontWeight: 700,
                       }}
                     />
@@ -1500,7 +1571,15 @@ export default function MesasPage() {
                       border: '1px solid rgba(212,175,55,0.12)',
                     }}
                   >
-                    <Typography sx={{ color: COLOR_MUTED, fontSize: '0.88rem', mb: 0.5 }}>Observación</Typography>
+                    <Typography sx={{ color: 'rgba(243,233,210,0.8)', mb: 0.35 }}>
+                      Estado mesa: {mesa.activa ? 'Activa' : 'Inactiva'}
+                    </Typography>
+                    {activePedido?.codigo ? (
+                      <Typography sx={{ color: 'rgba(243,233,210,0.8)', mb: 0.35 }}>
+                        Pedido activo: {activePedido.codigo}
+                      </Typography>
+                    ) : null}
+                    <Typography sx={{ color: COLOR_MUTED, fontSize: '0.88rem', mb: 0.4 }}>Observación</Typography>
                     <Typography sx={{ color: COLOR_TEXT }}>
                       {mesa.observacion || 'Sin observaciones. Toca la mesa para gestionar el pedido.'}
                     </Typography>
@@ -1508,7 +1587,7 @@ export default function MesasPage() {
 
                   <Stack spacing={1} sx={{ mt: 'auto' }}>
                     <Button
-                      variant="contained"
+                      variant="outlined"
                       startIcon={<RestaurantIcon />}
                       fullWidth
                       disabled={!mesa.activa}
@@ -1517,14 +1596,16 @@ export default function MesasPage() {
                         openPedidoDrawer(mesa)
                       }}
                       sx={{
-                        background: `linear-gradient(135deg, ${COLOR_GOLD} 0%, #f2d36f 100%)`,
-                        color: '#1a1208',
+                        borderColor: 'rgba(212,175,55,0.45)',
+                        color: COLOR_GOLD,
                         fontWeight: 800,
                         '&:hover': {
-                          background: `linear-gradient(135deg, #e5c253 0%, #f7df8d 100%)`,
+                          borderColor: COLOR_GOLD,
+                          backgroundColor: 'rgba(212,175,55,0.1)',
                         },
                         '&.Mui-disabled': {
-                          background: 'rgba(212,175,55,0.15)',
+                          borderColor: 'rgba(212,175,55,0.15)',
+                          backgroundColor: 'rgba(212,175,55,0.04)',
                           color: 'rgba(243,233,210,0.35)',
                         },
                       }}
@@ -1571,7 +1652,16 @@ export default function MesasPage() {
       </Paper>
 
       <Drawer anchor="right" open={orderDrawerOpen} onClose={closePedidoDrawer}>
-        <Box sx={{ width: { xs: '100vw', sm: 520 }, height: '100%', backgroundColor: '#160f0c', color: COLOR_TEXT }}>
+        <Box
+          sx={{
+            width: { xs: '100vw', sm: 520 },
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            backgroundColor: '#160f0c',
+            color: COLOR_TEXT,
+          }}
+        >
           <Box sx={{ p: 3, borderBottom: '1px solid rgba(212,175,55,0.18)' }}>
             <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
               <Box>
@@ -1595,7 +1685,18 @@ export default function MesasPage() {
             </Stack>
           </Box>
 
-          <Box sx={{ p: 3, display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto', height: 'calc(100% - 88px)' }}>
+          <Box
+            sx={{
+              p: 3,
+              pb: 3,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 2,
+              overflowY: 'auto',
+              flex: 1,
+              minHeight: 0,
+            }}
+          >
             {pedidoLoading ? (
               <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
                 <CircularProgress sx={{ color: COLOR_GOLD }} />
@@ -1678,14 +1779,14 @@ export default function MesasPage() {
                               <IconButton
                                 size="small"
                                 onClick={() => openEditDetailDialog(detalle)}
-                                sx={{ color: COLOR_GOLD }}
+                                sx={getDrawerIconButtonSx('gold')}
                               >
                                 <EditIcon fontSize="small" />
                               </IconButton>
                               <IconButton
                                 size="small"
                                 onClick={() => void handleDeleteCurrentDetail(detalle)}
-                                sx={{ color: '#f39ca8' }}
+                                sx={getDrawerIconButtonSx('danger')}
                               >
                                 <DeleteIcon fontSize="small" />
                               </IconButton>
@@ -1757,10 +1858,10 @@ export default function MesasPage() {
                       <Typography sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Línea {index + 1}</Typography>
                       <Button
                         size="small"
-                        variant="text"
+                        variant="outlined"
                         onClick={() => removePedidoLine(index)}
                         disabled={pedidoForm.lineas.length === 1}
-                        sx={{ color: '#f39ca8' }}
+                        sx={getDrawerActionButtonSx('danger')}
                       >
                         Quitar
                       </Button>
@@ -1838,52 +1939,76 @@ export default function MesasPage() {
                 variant="outlined"
                 startIcon={<AddIcon />}
                 onClick={addPedidoLine}
-                sx={{ color: COLOR_GOLD, borderColor: 'rgba(212,175,55,0.35)' }}
+                sx={getDrawerActionButtonSx('gold')}
               >
                 Agregar producto
               </Button>
             </Stack>
 
-            <Stack direction="row" spacing={1.5} sx={{ pt: 1 }}>
-              <Button onClick={closePedidoDrawer} fullWidth sx={{ color: COLOR_TEXT }}>
-                Cancelar
-              </Button>
-              {selectedPedido ? (
-                <Button
-                  variant="outlined"
-                  onClick={() => void handleSendToKitchen()}
-                  disabled={saving || pedidoLoading}
-                  fullWidth
-                  sx={{ color: COLOR_GOLD, borderColor: 'rgba(212,175,55,0.35)' }}
-                >
-                  Enviar a cocina
-                </Button>
-              ) : null}
-              {selectedPedido ? (
-                <Button
-                  variant="outlined"
-                  onClick={() => void openInvoicePreview()}
-                  disabled={saving || pedidoLoading}
-                  fullWidth
-                  sx={{ color: COLOR_TEXT, borderColor: 'rgba(243,233,210,0.35)' }}
-                >
-                  Facturar
-                </Button>
-              ) : null}
-              <Button
-                variant="contained"
-                onClick={() => void handleSavePedido()}
-                disabled={saving}
-                fullWidth
+            <Paper
+              sx={{
+                mt: 1,
+                p: 1.25,
+                borderRadius: 2,
+                backgroundColor: 'rgba(255,255,255,0.03)',
+                border: '1px solid rgba(212,175,55,0.15)',
+              }}
+            >
+              <Box
                 sx={{
-                  background: `linear-gradient(135deg, ${COLOR_GOLD} 0%, #f2d36f 100%)`,
-                  color: '#1a1208',
-                  fontWeight: 800,
+                  display: 'grid',
+                  gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' },
+                  gap: 1.25,
                 }}
               >
-                {saving ? 'Guardando...' : selectedPedido ? 'Agregar a la comanda' : 'Crear pedido'}
-              </Button>
-            </Stack>
+                <Button onClick={closePedidoDrawer} variant="outlined" sx={getDrawerActionButtonSx('neutral')}>
+                  Cancelar
+                </Button>
+                {selectedPedido ? (
+                  <Button
+                    variant="outlined"
+                    onClick={() => void handleSendToKitchen()}
+                    disabled={saving || pedidoLoading}
+                    sx={getDrawerActionButtonSx('gold')}
+                  >
+                    Enviar a cocina
+                  </Button>
+                ) : null}
+                {selectedPedido ? (
+                  <Button
+                    variant="outlined"
+                    onClick={() => void openInvoicePreview()}
+                    disabled={saving || pedidoLoading}
+                    sx={getDrawerActionButtonSx('neutral')}
+                  >
+                    Facturar
+                  </Button>
+                ) : null}
+                <Button
+                  variant="contained"
+                  onClick={() => void handleSavePedido()}
+                  disabled={saving}
+                  sx={{
+                    background: `linear-gradient(135deg, ${COLOR_GOLD} 0%, #f2d36f 100%)`,
+                    color: '#1a1208',
+                    fontWeight: 800,
+                    borderRadius: 2,
+                    minHeight: 44,
+                    whiteSpace: 'normal',
+                    lineHeight: 1.2,
+                    '&:hover': {
+                      background: 'linear-gradient(135deg, #e5c253 0%, #f7df8d 100%)',
+                    },
+                    '&.Mui-disabled': {
+                      background: 'rgba(212,175,55,0.2)',
+                      color: 'rgba(26,18,8,0.65)',
+                    },
+                  }}
+                >
+                  {saving ? 'Guardando...' : selectedPedido ? 'Agregar a la comanda' : 'Crear pedido'}
+                </Button>
+              </Box>
+            </Paper>
           </Box>
         </Box>
       </Drawer>

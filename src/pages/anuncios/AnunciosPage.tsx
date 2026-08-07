@@ -535,7 +535,7 @@ export default function AnunciosPage() {
           <Stack spacing={1.2}>
             <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <Box>
-                <Typography sx={{ fontFamily: '"Playfair Display", serif', fontSize: '1.2rem' }}>
+                <Typography sx={{ fontFamily: '"Playfair Display", serif', fontSize: '1.2rem', color: COLOR_TEXT }}>
                   {announcement.titulo}
                 </Typography>
                 <Typography sx={{ color: 'rgba(243,233,210,0.8)', fontSize: '0.95rem' }}>
@@ -722,8 +722,28 @@ export default function AnunciosPage() {
       )}
 
       <Dialog open={isDialogOpen} onClose={closeDialog} fullWidth maxWidth="sm">
-        <DialogTitle>{editingAnnouncementId === null ? 'Nuevo Anuncio' : 'Editar Anuncio'}</DialogTitle>
-        <DialogContent>
+        <DialogTitle sx={{ backgroundColor: '#160f0c', color: COLOR_GOLD, fontWeight: 800 }}>
+          {editingAnnouncementId === null ? 'Nuevo Anuncio' : 'Editar Anuncio'}
+        </DialogTitle>
+        <DialogContent
+          sx={{
+            backgroundColor: '#160f0c',
+            pt: 3,
+            '& .MuiInputLabel-root, & .MuiInputBase-input, & .MuiSelect-select, & .MuiFormHelperText-root': {
+              color: COLOR_TEXT,
+            },
+            '& .MuiInputBase-input': {
+              WebkitTextFillColor: COLOR_TEXT,
+            },
+            '& .MuiOutlinedInput-root': {
+              color: COLOR_TEXT,
+              backgroundColor: 'rgba(255,255,255,0.03)',
+            },
+            '& .MuiOutlinedInput-notchedOutline': {
+              borderColor: 'rgba(212,175,55,0.35)',
+            },
+          }}
+        >
           <Stack spacing={2} sx={{ pt: 1 }}>
             <TextField
               label="Título"
@@ -822,11 +842,16 @@ export default function AnunciosPage() {
             </TextField>
           </Stack>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={closeDialog} disabled={submitting}>
+        <DialogActions sx={{ backgroundColor: '#160f0c', p: 2.5 }}>
+          <Button onClick={closeDialog} disabled={submitting} sx={{ color: COLOR_TEXT }}>
             Cancelar
           </Button>
-          <Button onClick={handleSave} variant="contained" disabled={submitting}>
+          <Button
+            onClick={handleSave}
+            variant="contained"
+            disabled={submitting}
+            sx={{ backgroundColor: COLOR_MAROON, '&:hover': { backgroundColor: '#a42535' } }}
+          >
             {submitting ? <CircularProgress size={18} color="inherit" /> : 'Guardar'}
           </Button>
         </DialogActions>

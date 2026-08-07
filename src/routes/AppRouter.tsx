@@ -12,6 +12,7 @@ import PlatoDelMesPage from '@/pages/plato-del-mes/PlatoDelMesPage'
 import PedidosPage from '@/pages/pedidos/PedidosPage'
 import UsuariosPage from '@/pages/usuarios/UsuariosPage'
 import AnunciosPage from '@/pages/anuncios/AnunciosPage'
+import EstadisticasProductosPage from '@/pages/admin/EstadisticasProductosPage'
 
 export default function AppRouter() {
   return (
@@ -35,6 +36,7 @@ export default function AppRouter() {
             </Route>
 
             <Route element={<PrivateRoute allowedRoles={['ADMIN']} />}>
+              <Route path="/admin/estadisticas-productos" element={<EstadisticasProductosPage />} />
               <Route path="/menu" element={<MenuPage />} />
               <Route path="/plato-del-mes" element={<PlatoDelMesPage />} />
               <Route path="/anuncios" element={<AnunciosPage />} />

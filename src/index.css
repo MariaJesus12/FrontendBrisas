@@ -82,6 +82,105 @@ body {
   background-color: rgba(243, 233, 210, 0.04);
 }
 
+/* Global readability guards for dark UI: avoid black text in menus/dialogs/popovers. */
+.MuiDialog-paper {
+  background-color: #160f0c;
+  color: #f3e9d2;
+  border: 1px solid rgba(212, 175, 55, 0.3);
+}
+
+.MuiDialog-paper .MuiInputBase-input,
+.MuiDialog-paper .MuiInputLabel-root,
+.MuiDialog-paper .MuiSelect-select,
+.MuiDialog-paper .MuiFormHelperText-root,
+.MuiDialog-paper .MuiTypography-root {
+  color: #f3e9d2;
+}
+
+.MuiDialog-paper .MuiOutlinedInput-notchedOutline {
+  border-color: rgba(212, 175, 55, 0.35);
+}
+
+.MuiDialog-paper .MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline {
+  border-color: rgba(212, 175, 55, 0.55);
+}
+
+.MuiMenu-paper,
+.MuiPopover-paper {
+  background-color: #1b120e !important;
+  color: #f3e9d2 !important;
+  border: 1px solid rgba(212, 175, 55, 0.28) !important;
+}
+
+.MuiMenu-paper .MuiMenuItem-root,
+.MuiPopover-paper .MuiMenuItem-root,
+.MuiAutocomplete-paper .MuiAutocomplete-option {
+  color: #f3e9d2 !important;
+}
+
+.MuiMenu-paper .MuiMenuItem-root.Mui-selected,
+.MuiPopover-paper .MuiMenuItem-root.Mui-selected,
+.MuiAutocomplete-paper .MuiAutocomplete-option[aria-selected='true'] {
+  background-color: rgba(212, 175, 55, 0.18);
+}
+
+.MuiMenu-paper .MuiMenuItem-root:hover,
+.MuiPopover-paper .MuiMenuItem-root:hover,
+.MuiAutocomplete-paper .MuiAutocomplete-option:hover {
+  background-color: rgba(212, 175, 55, 0.12) !important;
+}
+
+.MuiPaper-root.MuiMenu-paper,
+.MuiPaper-root.MuiPopover-paper,
+.MuiAutocomplete-paper {
+  background-color: #1b120e !important;
+  color: #f3e9d2 !important;
+}
+
+.MuiList-root.MuiMenu-list {
+  background-color: #1b120e !important;
+}
+
+.MuiMenuItem-root {
+  color: #f3e9d2 !important;
+}
+
+.MuiOutlinedInput-root {
+  color: #f3e9d2 !important;
+  background-color: rgba(255, 255, 255, 0.03) !important;
+}
+
+.MuiOutlinedInput-root .MuiSelect-select,
+.MuiOutlinedInput-root .MuiInputBase-input {
+  color: #f3e9d2 !important;
+}
+
+.MuiSelect-select,
+.MuiSelect-select.MuiSelect-outlined,
+.MuiInputBase-input {
+  color: #f3e9d2 !important;
+  -webkit-text-fill-color: #f3e9d2 !important;
+}
+
+.MuiSelect-icon {
+  color: rgba(243, 233, 210, 0.85) !important;
+}
+
+.MuiOutlinedInput-root.Mui-disabled {
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+.MuiInputLabel-root {
+  color: rgba(243, 233, 210, 0.78);
+}
+
+.MuiInputBase-input.Mui-disabled,
+.MuiInputBase-input:disabled,
+.MuiSelect-select.Mui-disabled {
+  color: rgba(243, 233, 210, 0.72) !important;
+  -webkit-text-fill-color: rgba(243, 233, 210, 0.72) !important;
+}
+
 h1,
 h2 {
   font-family: var(--heading);
