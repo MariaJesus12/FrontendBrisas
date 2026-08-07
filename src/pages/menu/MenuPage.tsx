@@ -620,8 +620,26 @@ export default function MenuPage() {
           sx={{ justifyContent: 'space-between', alignItems: { xs: 'stretch', md: 'center' } }}
         >
           <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
-            <Chip label={`${categories.length} categorías`} icon={<CategoryIcon />} variant="outlined" />
-            <Chip label={`${products.length} productos`} icon={<LocalDiningIcon />} variant="outlined" />
+            <Chip
+              label={`${categories.length} categorías`}
+              icon={<CategoryIcon />}
+              variant="outlined"
+              sx={{
+                color: COLOR_TEXT,
+                borderColor: 'rgba(212,175,55,0.5)',
+                '& .MuiChip-icon': { color: COLOR_GOLD },
+              }}
+            />
+            <Chip
+              label={`${products.length} productos`}
+              icon={<LocalDiningIcon />}
+              variant="outlined"
+              sx={{
+                color: COLOR_TEXT,
+                borderColor: 'rgba(212,175,55,0.5)',
+                '& .MuiChip-icon': { color: COLOR_GOLD },
+              }}
+            />
           </Stack>
 
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.2}>
@@ -798,7 +816,14 @@ export default function MenuPage() {
                                 sx={{ justifyContent: 'space-between', alignItems: 'flex-start' }}
                               >
                                 <Box>
-                                  <Typography sx={{ fontFamily: '"Playfair Display", serif', fontSize: '1.15rem' }}>
+                                  <Typography
+                                    sx={{
+                                      fontFamily: '"Playfair Display", serif',
+                                      fontSize: '1.15rem',
+                                      color: COLOR_TEXT,
+                                      fontWeight: 700,
+                                    }}
+                                  >
                                     {product.nombre}
                                   </Typography>
                                   {product.codigo ? (
@@ -882,8 +907,28 @@ export default function MenuPage() {
       )}
 
       <Dialog open={isCategoryDialogOpen} onClose={closeCategoryDialog} fullWidth maxWidth="sm">
-        <DialogTitle>{editingCategoryId === null ? 'Nueva Categoría' : 'Editar Categoría'}</DialogTitle>
-        <DialogContent>
+        <DialogTitle sx={{ backgroundColor: '#160f0c', color: COLOR_GOLD, fontWeight: 800 }}>
+          {editingCategoryId === null ? 'Nueva Categoría' : 'Editar Categoría'}
+        </DialogTitle>
+        <DialogContent
+          sx={{
+            backgroundColor: '#160f0c',
+            pt: 3,
+            '& .MuiInputLabel-root, & .MuiInputBase-input, & .MuiSelect-select, & .MuiFormHelperText-root': {
+              color: COLOR_TEXT,
+            },
+            '& .MuiInputBase-input': {
+              WebkitTextFillColor: COLOR_TEXT,
+            },
+            '& .MuiOutlinedInput-root': {
+              color: COLOR_TEXT,
+              backgroundColor: 'rgba(255,255,255,0.03)',
+            },
+            '& .MuiOutlinedInput-notchedOutline': {
+              borderColor: 'rgba(212,175,55,0.35)',
+            },
+          }}
+        >
           <Stack spacing={2} sx={{ pt: 1 }}>
             <TextField
               label="Nombre"
@@ -901,19 +946,44 @@ export default function MenuPage() {
             />
           </Stack>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={closeCategoryDialog} disabled={submittingCategory}>
+        <DialogActions sx={{ backgroundColor: '#160f0c', p: 2.5 }}>
+          <Button onClick={closeCategoryDialog} disabled={submittingCategory} sx={{ color: COLOR_TEXT }}>
             Cancelar
           </Button>
-          <Button onClick={handleSaveCategory} variant="contained" disabled={submittingCategory}>
+          <Button
+            onClick={handleSaveCategory}
+            variant="contained"
+            disabled={submittingCategory}
+            sx={{ backgroundColor: COLOR_MAROON, '&:hover': { backgroundColor: '#a42535' } }}
+          >
             {submittingCategory ? <CircularProgress size={18} color="inherit" /> : 'Guardar'}
           </Button>
         </DialogActions>
       </Dialog>
 
       <Dialog open={isProductDialogOpen} onClose={closeProductDialog} fullWidth maxWidth="sm">
-        <DialogTitle>{editingProductId === null ? 'Nuevo Producto' : 'Editar Producto'}</DialogTitle>
-        <DialogContent>
+        <DialogTitle sx={{ backgroundColor: '#160f0c', color: COLOR_GOLD, fontWeight: 800 }}>
+          {editingProductId === null ? 'Nuevo Producto' : 'Editar Producto'}
+        </DialogTitle>
+        <DialogContent
+          sx={{
+            backgroundColor: '#160f0c',
+            pt: 3,
+            '& .MuiInputLabel-root, & .MuiInputBase-input, & .MuiSelect-select, & .MuiFormHelperText-root': {
+              color: COLOR_TEXT,
+            },
+            '& .MuiInputBase-input': {
+              WebkitTextFillColor: COLOR_TEXT,
+            },
+            '& .MuiOutlinedInput-root': {
+              color: COLOR_TEXT,
+              backgroundColor: 'rgba(255,255,255,0.03)',
+            },
+            '& .MuiOutlinedInput-notchedOutline': {
+              borderColor: 'rgba(212,175,55,0.35)',
+            },
+          }}
+        >
           <Stack spacing={2} sx={{ pt: 1 }}>
             <TextField
               label="Código"
@@ -981,11 +1051,16 @@ export default function MenuPage() {
             </TextField>
           </Stack>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={closeProductDialog} disabled={submittingProduct}>
+        <DialogActions sx={{ backgroundColor: '#160f0c', p: 2.5 }}>
+          <Button onClick={closeProductDialog} disabled={submittingProduct} sx={{ color: COLOR_TEXT }}>
             Cancelar
           </Button>
-          <Button onClick={handleSaveProduct} variant="contained" disabled={submittingProduct}>
+          <Button
+            onClick={handleSaveProduct}
+            variant="contained"
+            disabled={submittingProduct}
+            sx={{ backgroundColor: COLOR_MAROON, '&:hover': { backgroundColor: '#a42535' } }}
+          >
             {submittingProduct ? <CircularProgress size={18} color="inherit" /> : 'Guardar'}
           </Button>
         </DialogActions>

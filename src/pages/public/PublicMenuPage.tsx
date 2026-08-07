@@ -21,12 +21,22 @@ import WhatsAppIcon from '@mui/icons-material/WhatsApp'
 import PhoneInTalkIcon from '@mui/icons-material/PhoneInTalk'
 import RateReviewIcon from '@mui/icons-material/RateReview'
 import CampaignIcon from '@mui/icons-material/Campaign'
+import InstagramIcon from '@mui/icons-material/Instagram'
+import FacebookIcon from '@mui/icons-material/Facebook'
+import FmdGoodIcon from '@mui/icons-material/FmdGood'
+import PlaceIcon from '@mui/icons-material/Place'
 import { Link as RouterLink } from 'react-router-dom'
 import { menuService } from '@/services/menu.service'
 import { platoDelMesService } from '@/services/plato-del-mes.service'
 import { announcementsService } from '@/services/announcements.service'
+import {
+  normalizeRestaurantConfigListPayload,
+  normalizeRestaurantConfigPayload,
+  restaurantConfigService,
+} from '@/services/configuracion-restaurante.service'
 import type { Category, Product, DishOfMonth } from '@/types/menu.types'
 import type { Announcement, AnnouncementType } from '@/types/announcement.types'
+import type { RestaurantConfig } from '@/types/configuracion-restaurante.types'
 
 const COLOR_GOLD = '#D4AF37'
 const COLOR_BLACK = '#070707'
@@ -43,16 +53,87 @@ const crcFormatter = new Intl.NumberFormat('es-CR', {
 
 const LOGO_URL = new URL('@/assets/logobrisassinfondo.jpeg', import.meta.url).href
 
-const WHATSAPP_URL = 'https://wa.me/51999999999'
-const PHONE_NUMBER = '+51 999 999 999'
-const PHONE_HREF = 'tel:+51999999999'
-const TRIPADVISOR_URL = 'https://www.tripadvisor.com/'
+const DEFAULT_RESTAURANT_CONFIG: RestaurantConfig = {
+  nombre: '',
+  telefono: '',
+  whatsapp: '',
+  direccion: '',
+  horario: '',
+}
 
-const openingHours = [
-  { day: 'Lunes a Jueves', hours: '12:00 pm - 10:00 pm' },
-  { day: 'Viernes y Sabado', hours: '12:00 pm - 11:30 pm' },
-  { day: 'Domingo', hours: '12:00 pm - 9:30 pm' },
-]
+function normalizeExternalUrl(value: string | undefined): string | undefined {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return undefined
+  }
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed
+  }
+
+  return `https://${trimmed}`
+}
+
+function buildWhatsappUrl(value: string | undefined): string | undefined {
+  const digits = (value ?? '').replace(/\D/g, '')
+  if (!digits) {
+    return undefined
+  }
+
+  return `https://wa.me/${digits}`
+}
+
+function buildPhoneHref(value: string | undefined): string | undefined {
+  const raw = (value ?? '').trim()
+  if (!raw) {
+    return undefined
+  }
+
+  const sanitized = raw.replace(/[^\d+]/g, '')
+  if (!sanitized) {
+    return undefined
+  }
+
+  return `tel:${sanitized}`
+}
+
+function buildScheduleRows(horario: string | undefined): Array<{ day: string; hours: string }> {
+  const trimmed = horario?.trim()
+  if (!trimmed) {
+    return []
+  }
+
+  const normalized = trimmed.replace(/\s*,\s*/g, '\n')
+  const parts = normalized.split(/\s*(?:\||;|\n)\s*/).filter(Boolean)
+
+  return parts.map((rawEntry) => {
+    const entry = rawEntry.trim()
+
+    const closedMatch = entry.match(/^(.*?)(cerrado|closed)$/i)
+    if (closedMatch) {
+      return {
+        day: closedMatch[1].trim().replace(/[,:-]+$/, '') || 'Horario',
+        hours: closedMatch[2].toUpperCase(),
+      }
+    }
+
+    const firstDigitIndex = entry.search(/\d/)
+    if (firstDigitIndex > 0) {
+      const day = entry.slice(0, firstDigitIndex).trim().replace(/[,:-]+$/, '')
+      const hours = entry.slice(firstDigitIndex).trim()
+
+      return {
+        day: day || 'Horario',
+        hours,
+      }
+    }
+
+    return {
+      day: 'Horario',
+      hours: entry,
+    }
+  })
+}
 
 function formatCRC(value: number): string {
   if (!Number.isFinite(value)) {
@@ -695,6 +776,7 @@ export default function PublicMenuPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [dishOfMonth, setDishOfMonth] = useState<DishOfMonth | null>(null)
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
+  const [restaurantConfig, setRestaurantConfig] = useState<RestaurantConfig | null>(null)
   const [loading, setLoading] = useState<boolean>(true)
   const [errorMessage, setErrorMessage] = useState<string>('')
 
@@ -706,7 +788,7 @@ export default function PublicMenuPage() {
         const categoriesResponse = await menuService.getCategories()
         const normalizedCategories = normalizeCategoriesPayload(categoriesResponse.data)
 
-        const [categoryProductsResponses, dishOfMonthResponse, announcementsResponse] = await Promise.all([
+        const [categoryProductsResponses, dishOfMonthResponse, announcementsResponse, restaurantConfigResponse] = await Promise.all([
           Promise.all(
             normalizedCategories.map((category) => menuService.getProductsByCategory(category.id)),
           ),
@@ -724,6 +806,13 @@ export default function PublicMenuPage() {
 
             throw error
           }),
+          restaurantConfigService.getCurrent().catch((error) => {
+            if (axios.isAxiosError(error) && error.response?.status === 404) {
+              return { data: null }
+            }
+
+            throw error
+          }),
         ])
 
         const mergedProducts = categoryProductsResponses.flatMap((response, index) =>
@@ -733,6 +822,20 @@ export default function PublicMenuPage() {
           })),
         )
 
+        let normalizedRestaurantConfig = normalizeRestaurantConfigPayload(restaurantConfigResponse.data)
+        if (!normalizedRestaurantConfig) {
+          const allConfigResponse = await restaurantConfigService.getAll().catch((error) => {
+            if (axios.isAxiosError(error) && error.response?.status === 404) {
+              return { data: [] }
+            }
+
+            throw error
+          })
+
+          const allConfigs = normalizeRestaurantConfigListPayload(allConfigResponse.data)
+          normalizedRestaurantConfig = allConfigs[0] ?? null
+        }
+
         setCategories(normalizedCategories)
         setProducts(mergedProducts)
         setDishOfMonth(normalizeDishPayload(dishOfMonthResponse.data))
@@ -741,6 +844,7 @@ export default function PublicMenuPage() {
             .filter((announcement) => isAnnouncementActive(announcement.activo))
             .sort((a, b) => (b.prioridad ?? 0) - (a.prioridad ?? 0)),
         )
+        setRestaurantConfig(normalizedRestaurantConfig)
         setErrorMessage('')
       } catch (error) {
         if (axios.isAxiosError(error)) {
@@ -813,6 +917,19 @@ export default function PublicMenuPage() {
     dishOfMonth?.product ??
     (dishOfMonth ? products.find((product) => product.id === dishOfMonth.productId) : undefined)
 
+  const effectiveConfig = restaurantConfig ?? DEFAULT_RESTAURANT_CONFIG
+  const restaurantName = effectiveConfig.nombre || 'Restaurante'
+  const scheduleRows = buildScheduleRows(effectiveConfig.horario)
+  const openingHoursChipLabel = scheduleRows.length > 0
+    ? `${scheduleRows[0].day} ${scheduleRows[0].hours}`
+    : (effectiveConfig.horario || 'Horario no configurado')
+  const whatsappUrl = buildWhatsappUrl(effectiveConfig.whatsapp)
+  const phoneHref = buildPhoneHref(effectiveConfig.telefono)
+  const instagramUrl = normalizeExternalUrl(effectiveConfig.instagramUrl)
+  const facebookUrl = normalizeExternalUrl(effectiveConfig.facebookUrl)
+  const tripadvisorUrl = normalizeExternalUrl(effectiveConfig.tripadvisorUrl)
+  const googleMapsUrl = normalizeExternalUrl(effectiveConfig.googleMapsUrl)
+
   return (
     <Box
       sx={{
@@ -864,7 +981,7 @@ export default function PublicMenuPage() {
                 color: COLOR_TEXT_SOFT,
               }}
             >
-              Brisas del Lago
+              {restaurantName}
             </Typography>
           </Stack>
 
@@ -904,7 +1021,7 @@ export default function PublicMenuPage() {
               <Box
                 component="img"
                 src={LOGO_URL}
-                alt="Brisas del Lago"
+                alt={restaurantName}
                 sx={{ width: { xs: 200, md: 280 }, maxWidth: '100%', height: 'auto' }}
               />
 
@@ -948,7 +1065,7 @@ export default function PublicMenuPage() {
                 />
                 <Chip
                   icon={<AccessTimeIcon />}
-                  label="Abierto 12:00 - 23:00"
+                  label={openingHoursChipLabel}
                   sx={{
                     color: COLOR_TEXT_SOFT,
                     borderColor: COLOR_GOLD,
@@ -1072,16 +1189,66 @@ export default function PublicMenuPage() {
               </Stack>
 
               <Stack spacing={1}>
-                {openingHours.map((slot) => (
-                  <Box key={slot.day} sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-                    <Typography sx={{ fontFamily: '"Cormorant Garamond", serif', fontSize: '1.05rem', opacity: 0.9 }}>
-                      {slot.day}
-                    </Typography>
-                    <Typography sx={{ fontFamily: '"Cormorant Garamond", serif', fontSize: '1.05rem', color: COLOR_GOLD }}>
-                      {slot.hours}
-                    </Typography>
+                {scheduleRows.map((slot) => (
+                  <Box
+                    key={`${slot.day}-${slot.hours}`}
+                    sx={{
+                      px: 1.2,
+                      py: 1,
+                      borderRadius: 1.5,
+                      border: '1px solid rgba(212,175,55,0.22)',
+                      backgroundColor: 'rgba(212,175,55,0.04)',
+                    }}
+                  >
+                    {slot.day === 'Horario' ? (
+                      <Typography
+                        sx={{
+                          fontFamily: '"Cormorant Garamond", serif',
+                          fontSize: '1.06rem',
+                          color: COLOR_TEXT_SOFT,
+                          lineHeight: 1.45,
+                        }}
+                      >
+                        {slot.hours}
+                      </Typography>
+                    ) : (
+                      <Stack
+                        direction={{ xs: 'column', sm: 'row' }}
+                        spacing={0.8}
+                        sx={{ justifyContent: 'space-between', alignItems: { xs: 'flex-start', sm: 'center' } }}
+                      >
+                        <Typography sx={{ fontFamily: '"Cormorant Garamond", serif', fontSize: '1.05rem', opacity: 0.92 }}>
+                          {slot.day}
+                        </Typography>
+                        <Typography
+                          sx={{
+                            fontFamily: '"Cormorant Garamond", serif',
+                            fontSize: '1.05rem',
+                            color: /cerrado/i.test(slot.hours) ? '#ffb7b7' : COLOR_GOLD,
+                            fontWeight: /cerrado/i.test(slot.hours) ? 700 : 600,
+                          }}
+                        >
+                          {slot.hours}
+                        </Typography>
+                      </Stack>
+                    )}
                   </Box>
                 ))}
+
+                {scheduleRows.length === 0 ? (
+                  <Typography sx={{ fontFamily: '"Cormorant Garamond", serif', fontSize: '1.05rem', color: COLOR_TEXT_MUTED }}>
+                    Horario no configurado.
+                  </Typography>
+                ) : null}
+
+                {effectiveConfig.direccion ? (
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', mt: 1.2 }}>
+                    <PlaceIcon sx={{ color: COLOR_GOLD, mt: '2px' }} />
+                    <Typography sx={{ fontFamily: '"Cormorant Garamond", serif', fontSize: '1.05rem', color: COLOR_TEXT_MUTED }}>
+                      {effectiveConfig.direccion}
+                    </Typography>
+                  </Stack>
+                ) : null}
               </Stack>
             </CardContent>
           </Card>
@@ -1102,57 +1269,123 @@ export default function PublicMenuPage() {
               </Typography>
 
               <Stack spacing={1.2}>
-                <Button
-                  component="a"
-                  href={WHATSAPP_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  startIcon={<WhatsAppIcon />}
-                  sx={{
-                    justifyContent: 'flex-start',
-                    border: `1px solid rgba(212,175,55,0.5)`,
-                    color: COLOR_TEXT_SOFT,
-                    fontFamily: '"Cormorant Garamond", serif',
-                    fontWeight: 600,
-                    '&:hover': { backgroundColor: 'rgba(212,175,55,0.1)' },
-                  }}
-                >
-                  WhatsApp
-                </Button>
+                {whatsappUrl ? (
+                  <Button
+                    component="a"
+                    href={whatsappUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    startIcon={<WhatsAppIcon />}
+                    sx={{
+                      justifyContent: 'flex-start',
+                      border: `1px solid rgba(212,175,55,0.5)`,
+                      color: COLOR_TEXT_SOFT,
+                      fontFamily: '"Cormorant Garamond", serif',
+                      fontWeight: 600,
+                      '&:hover': { backgroundColor: 'rgba(212,175,55,0.1)' },
+                    }}
+                  >
+                    WhatsApp
+                  </Button>
+                ) : null}
 
-                <Button
-                  component="a"
-                  href={PHONE_HREF}
-                  startIcon={<PhoneInTalkIcon />}
-                  sx={{
-                    justifyContent: 'flex-start',
-                    border: `1px solid rgba(212,175,55,0.5)`,
-                    color: COLOR_TEXT_SOFT,
-                    fontFamily: '"Cormorant Garamond", serif',
-                    fontWeight: 600,
-                    '&:hover': { backgroundColor: 'rgba(212,175,55,0.1)' },
-                  }}
-                >
-                  {PHONE_NUMBER}
-                </Button>
+                {phoneHref ? (
+                  <Button
+                    component="a"
+                    href={phoneHref}
+                    startIcon={<PhoneInTalkIcon />}
+                    sx={{
+                      justifyContent: 'flex-start',
+                      border: `1px solid rgba(212,175,55,0.5)`,
+                      color: COLOR_TEXT_SOFT,
+                      fontFamily: '"Cormorant Garamond", serif',
+                      fontWeight: 600,
+                      '&:hover': { backgroundColor: 'rgba(212,175,55,0.1)' },
+                    }}
+                  >
+                    {effectiveConfig.telefono}
+                  </Button>
+                ) : null}
 
-                <Button
-                  component="a"
-                  href={TRIPADVISOR_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  startIcon={<RateReviewIcon />}
-                  sx={{
-                    justifyContent: 'flex-start',
-                    border: `1px solid rgba(212,175,55,0.5)`,
-                    color: COLOR_TEXT_SOFT,
-                    fontFamily: '"Cormorant Garamond", serif',
-                    fontWeight: 600,
-                    '&:hover': { backgroundColor: 'rgba(212,175,55,0.1)' },
-                  }}
-                >
-                  Ver reseñas en TripAdvisor
-                </Button>
+                {instagramUrl ? (
+                  <Button
+                    component="a"
+                    href={instagramUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    startIcon={<InstagramIcon />}
+                    sx={{
+                      justifyContent: 'flex-start',
+                      border: `1px solid rgba(212,175,55,0.5)`,
+                      color: COLOR_TEXT_SOFT,
+                      fontFamily: '"Cormorant Garamond", serif',
+                      fontWeight: 600,
+                      '&:hover': { backgroundColor: 'rgba(212,175,55,0.1)' },
+                    }}
+                  >
+                    Instagram
+                  </Button>
+                ) : null}
+
+                {facebookUrl ? (
+                  <Button
+                    component="a"
+                    href={facebookUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    startIcon={<FacebookIcon />}
+                    sx={{
+                      justifyContent: 'flex-start',
+                      border: `1px solid rgba(212,175,55,0.5)`,
+                      color: COLOR_TEXT_SOFT,
+                      fontFamily: '"Cormorant Garamond", serif',
+                      fontWeight: 600,
+                      '&:hover': { backgroundColor: 'rgba(212,175,55,0.1)' },
+                    }}
+                  >
+                    Facebook
+                  </Button>
+                ) : null}
+
+                {googleMapsUrl ? (
+                  <Button
+                    component="a"
+                    href={googleMapsUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    startIcon={<FmdGoodIcon />}
+                    sx={{
+                      justifyContent: 'flex-start',
+                      border: `1px solid rgba(212,175,55,0.5)`,
+                      color: COLOR_TEXT_SOFT,
+                      fontFamily: '"Cormorant Garamond", serif',
+                      fontWeight: 600,
+                      '&:hover': { backgroundColor: 'rgba(212,175,55,0.1)' },
+                    }}
+                  >
+                    Ver ubicación en Google Maps
+                  </Button>
+                ) : null}
+
+                {tripadvisorUrl ? (
+                  <Button
+                    component="a"
+                    href={tripadvisorUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    startIcon={<RateReviewIcon />}
+                    sx={{
+                      justifyContent: 'flex-start',
+                      border: `1px solid rgba(212,175,55,0.5)`,
+                      color: COLOR_TEXT_SOFT,
+                      fontFamily: '"Cormorant Garamond", serif',
+                      fontWeight: 600,
+                      '&:hover': { backgroundColor: 'rgba(212,175,55,0.1)' },
+                    }}
+                  >
+                    Ver reseñas en TripAdvisor
+                  </Button>
+                ) : null}
               </Stack>
             </CardContent>
           </Card>
@@ -1548,7 +1781,7 @@ export default function PublicMenuPage() {
           fontSize: '0.95rem',
         }}
       >
-        Brisas del Lago · Experiencia Gastronomica
+        {restaurantName} · Experiencia Gastronomica
       </Box>
     </Box>
   )

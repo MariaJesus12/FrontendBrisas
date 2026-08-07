@@ -1,7 +1,13 @@
 import axios from 'axios'
 import { env } from '@/config/env'
 
-const PUBLIC_401_SAFE_ENDPOINTS = ['/products', '/categories', '/dish-of-month', '/announcements']
+const PUBLIC_401_SAFE_ENDPOINTS = [
+  '/products',
+  '/categories',
+  '/dish-of-month',
+  '/announcements',
+  '/configuracion-restaurante',
+]
 const CLIENT_ENDPOINTS = ['/clientes', '/cliente', '/customers', '/customer']
 
 function shouldRedirectToLoginOn401(error: {

@@ -20,6 +20,7 @@ import PeopleAltIcon from '@mui/icons-material/PeopleAlt'
 import CampaignIcon from '@mui/icons-material/Campaign'
 import QueryStatsIcon from '@mui/icons-material/QueryStats'
 import EventAvailableIcon from '@mui/icons-material/EventAvailable'
+import StorefrontIcon from '@mui/icons-material/Storefront'
 import { useAuth } from '@/hooks/useAuth'
 import { normalizeRole } from '@/utils/roles'
 
@@ -29,6 +30,7 @@ const COLOR_TEXT = '#F3E9D2'
 
 const adminNavItems = [
   { label: 'Dashboard', path: '/dashboard', icon: <DashboardIcon /> },
+  { label: 'Configuración restaurante', path: '/admin/configuracion-restaurante', icon: <StorefrontIcon /> },
   { label: 'Estadísticas productos', path: '/admin/estadisticas-productos', icon: <QueryStatsIcon /> },
   { label: 'Mesas', path: '/mesas', icon: <TableRestaurantIcon /> },
   { label: 'Reservaciones', path: '/reservaciones', icon: <EventAvailableIcon /> },

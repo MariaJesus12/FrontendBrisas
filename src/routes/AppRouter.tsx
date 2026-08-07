@@ -13,6 +13,7 @@ import PedidosPage from '@/pages/pedidos/PedidosPage'
 import UsuariosPage from '@/pages/usuarios/UsuariosPage'
 import AnunciosPage from '@/pages/anuncios/AnunciosPage'
 import EstadisticasProductosPage from '@/pages/admin/EstadisticasProductosPage'
+import ConfiguracionRestaurantePage from '@/pages/configuracion-restaurante/ConfiguracionRestaurantePage'
 
 export default function AppRouter() {
   return (
@@ -37,6 +38,7 @@ export default function AppRouter() {
 
             <Route element={<PrivateRoute allowedRoles={['ADMIN']} />}>
               <Route path="/admin/estadisticas-productos" element={<EstadisticasProductosPage />} />
+              <Route path="/admin/configuracion-restaurante" element={<ConfiguracionRestaurantePage />} />
               <Route path="/menu" element={<MenuPage />} />
               <Route path="/plato-del-mes" element={<PlatoDelMesPage />} />
               <Route path="/anuncios" element={<AnunciosPage />} />
