@@ -53,7 +53,7 @@ npm run build
 
 Ejemplos:
 
-- `https://api.brisasdellago.com/api`
+- `https://api.restaurantebrisasdellago.com/api`
 - `http://localhost:3000/api`
 
 ### 2) CORS en backend
@@ -61,7 +61,7 @@ Ejemplos:
 Habilita CORS para el frontend:
 
 - Desarrollo: `http://localhost:5173`
-- Produccion: dominio final del frontend
+- Produccion: `https://restaurantebrisasdellago.com`
 
 ### 3) Contrato de autenticacion esperado
 

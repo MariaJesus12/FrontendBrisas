@@ -1,4 +1,5 @@
-const DEFAULT_API_URL = 'http://localhost:3000/api'
+const DEFAULT_DEV_API_URL = 'http://localhost:3000/api'
+const DEFAULT_PROD_API_URL = 'https://api.restaurantebrisasdellago.com/api'
 const DEFAULT_API_TIMEOUT_MS = 10000
 
 function normalizeApiUrl(url: string): string {
@@ -12,7 +13,8 @@ function parseTimeout(value: string | undefined): number {
   return parsed
 }
 
-const rawApiUrl = import.meta.env.VITE_API_URL ?? DEFAULT_API_URL
+const fallbackApiUrl = import.meta.env.PROD ? DEFAULT_PROD_API_URL : DEFAULT_DEV_API_URL
+const rawApiUrl = import.meta.env.VITE_API_URL ?? fallbackApiUrl
 
 export const env = {
   apiUrl: normalizeApiUrl(rawApiUrl),
