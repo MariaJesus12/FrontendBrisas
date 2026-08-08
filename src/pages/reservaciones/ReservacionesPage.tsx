@@ -59,6 +59,7 @@ const DEFAULT_ESTADOS = ['pendiente', 'confirmada', 'atendida', 'cancelada']
 
 const RESERVA_ESTADOS_OCUPADA = new Set(['PENDIENTE', 'CONFIRMADA', 'CONFIRMADO'])
 const RESERVA_ESTADOS_LIBRE = new Set(['ATENDIDA', 'CANCELADA'])
+const DATE_TIME_PARTS_PATTERN = /^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?/
 
 function toPositiveNumber(value: unknown): number | null {
   const parsed = Number(value)
@@ -98,18 +99,56 @@ function formatDateTimeInput(date: Date): string {
   return `${formatDateInput(date)}T${formatTimeInput(date)}`
 }
 
+function extractDateTimeParts(value?: string): {
+  year: number
+  month: number
+  day: number
+  hours: number
+  minutes: number
+  seconds: number
+} | null {
+  const trimmed = String(value ?? '').trim()
+  if (!trimmed) {
+    return null
+  }
+
+  const match = DATE_TIME_PARTS_PATTERN.exec(trimmed)
+  if (!match) {
+    return null
+  }
+
+  const [, yearRaw, monthRaw, dayRaw, hoursRaw = '00', minutesRaw = '00', secondsRaw = '00'] = match
+
+  return {
+    year: Number(yearRaw),
+    month: Number(monthRaw),
+    day: Number(dayRaw),
+    hours: Number(hoursRaw),
+    minutes: Number(minutesRaw),
+    seconds: Number(secondsRaw),
+  }
+}
+
+function buildDateFromParts(parts: NonNullable<ReturnType<typeof extractDateTimeParts>>): Date {
+  return new Date(parts.year, parts.month - 1, parts.day, parts.hours, parts.minutes, parts.seconds)
+}
+
 function buildAtParam(value: string): string | undefined {
   const trimmed = String(value ?? '').trim()
   if (!trimmed) {
     return undefined
   }
 
-  const parsed = new Date(trimmed)
-  if (Number.isNaN(parsed.getTime())) {
-    return trimmed.includes(':') && trimmed.length === 16 ? `${trimmed}:00` : trimmed
+  const parts = extractDateTimeParts(trimmed)
+  if (!parts) {
+    return trimmed
   }
 
-  return parsed.toISOString()
+  const hours = String(parts.hours).padStart(2, '0')
+  const minutes = String(parts.minutes).padStart(2, '0')
+  const seconds = String(parts.seconds).padStart(2, '0')
+
+  return `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}T${hours}:${minutes}:${seconds}`
 }
 
 function splitFechaHora(value?: string): { fecha: string; hora: string } {
@@ -117,10 +156,12 @@ function splitFechaHora(value?: string): { fecha: string; hora: string } {
     return { fecha: formatDateInput(new Date()), hora: formatTimeInput(new Date()) }
   }
 
-  if (value.includes('T')) {
-    const [fechaRaw, horaRaw] = value.split('T')
-    const hora = horaRaw?.slice(0, 5) ?? ''
-    return { fecha: fechaRaw ?? '', hora }
+  const parts = extractDateTimeParts(value)
+  if (parts) {
+    return {
+      fecha: `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`,
+      hora: `${String(parts.hours).padStart(2, '0')}:${String(parts.minutes).padStart(2, '0')}`,
+    }
   }
 
   const parsed = new Date(value)
@@ -137,6 +178,14 @@ function splitFechaHora(value?: string): { fecha: string; hora: string } {
 function formatDateTime(value?: string): string {
   if (!value) {
     return 'Sin fecha'
+  }
+
+  const parts = extractDateTimeParts(value)
+  if (parts) {
+    return buildDateFromParts(parts).toLocaleString('es-CR', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    })
   }
 
   const parsed = new Date(value)
