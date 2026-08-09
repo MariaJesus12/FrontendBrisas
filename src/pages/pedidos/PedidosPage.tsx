@@ -455,7 +455,14 @@ function resolvePaymentChangeCRC(payment: PagoPedido): number {
   }
 
   if (paymentCurrency === 'USD') {
-    return 0
+    const amountCRC = Number(payment.montoColones ?? 0)
+    const amountUSD = Number(payment.montoMoneda ?? payment.monto ?? 0)
+    if (!Number.isFinite(amountCRC) || amountCRC <= 0 || !Number.isFinite(amountUSD) || amountUSD <= 0) {
+      return 0
+    }
+
+    const inferredRate = amountCRC / amountUSD
+    return Number.isFinite(inferredRate) && inferredRate > 0 ? changeRaw * inferredRate : 0
   }
 
   return changeRaw
@@ -1909,10 +1916,10 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                 const subtotal = Number(detail.subtotal ?? unitPrice * quantity)
                 const note = detail.observacion?.trim() ? `<div class="item-note">Obs: ${escapeHtml(detail.observacion.trim())}</div>` : ''
 
-                return `<tr><td><div class="item-name">${escapeHtml(productLabel)}</div>${note}</td><td style="text-align:center;">${quantity > 0 ? quantity : '-'}</td><td style="text-align:right;">${formatCurrency(Number.isFinite(unitPrice) ? unitPrice : 0)}</td><td style="text-align:right;">${formatCurrency(Number.isFinite(subtotal) ? subtotal : 0)}</td></tr>`
+                return `<div class="item-row"><div class="item-name">${escapeHtml(productLabel)}</div>${note}<div class="item-meta"><span>Cant: ${quantity > 0 ? quantity : '-'}</span><span>PU: ${formatCurrency(Number.isFinite(unitPrice) ? unitPrice : 0)}</span><span>Subt: ${formatCurrency(Number.isFinite(subtotal) ? subtotal : 0)}</span></div></div>`
               })
               .join('')
-          : '<tr><td colspan="4" style="text-align:center;color:#6b7280;">Sin productos</td></tr>'
+          : '<div class="empty-row">Sin productos</div>'
 
       const subtotal = printableDetails.reduce((sum, detail) => {
         const amount = Number(detail.subtotal ?? Number(detail.precioUnitario ?? 0) * Number(detail.cantidad ?? 0))
@@ -1935,10 +1942,10 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                   paymentMethods.find((method) => method.id === payment.metodoPagoId)?.nombre ??
                   `Método #${payment.metodoPagoId}`
 
-                return `<tr><td>${escapeHtml(methodName)}</td><td style="text-align:right;">${formatCurrency(Number(payment.monto ?? 0))}</td></tr>`
+                return `<div class="payment-row"><span>${escapeHtml(methodName)}</span><span>${formatCurrency(Number(payment.montoColones ?? payment.monto ?? 0))}</span></div>`
               })
               .join('')
-          : '<tr><td colspan="2" style="text-align:center;color:#6b7280;">Sin pagos registrados</td></tr>'
+          : '<div class="empty-row">Sin pagos registrados</div>'
 
       const totalPagado = printablePayments.reduce((sum, payment) => {
         const monto = Number(payment.montoColones ?? payment.monto ?? 0)
@@ -2011,17 +2018,34 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                 font-size: 12px;
               }
               .meta-item b { display: block; color: #374151; font-weight: 800; margin-bottom: 1px; }
-              table { width: 100%; border-collapse: collapse; margin-bottom: 8px; table-layout: fixed; }
-              th, td { border-bottom: 1px dashed #cbd5e1; padding: 4px 1px; font-size: 11px; vertical-align: top; }
-              th { text-align: left; color: #1f2937; font-weight: 800; font-size: 10px; line-height: 1.15; }
-              th:nth-child(1), td:nth-child(1) { width: 43%; }
-              th:nth-child(2), td:nth-child(2) { width: 11%; }
-              th:nth-child(3), td:nth-child(3) { width: 19%; }
-              th:nth-child(4), td:nth-child(4) { width: 27%; }
-              td:nth-child(2), td:nth-child(3), td:nth-child(4) { white-space: nowrap; }
+              .items { margin-bottom: 8px; }
+              .item-row { border-bottom: 1px dashed #cbd5e1; padding: 5px 0; }
               .item-name { font-weight: 800; color: #111827; word-break: break-word; }
               .item-note { font-size: 11px; font-weight: 700; color: #4b5563; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
+              .item-meta {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 4px;
+                margin-top: 4px;
+                font-size: 10px;
+                font-weight: 700;
+                color: #1f2937;
+              }
+              .item-meta span:nth-child(2), .item-meta span:nth-child(3) { text-align: right; }
               .section-title { font-size: 12px; font-weight: 900; color: #111827; margin: 8px 0 3px; text-transform: uppercase; }
+              .payments { margin-bottom: 8px; }
+              .payment-row {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) auto;
+                column-gap: 6px;
+                border-bottom: 1px dashed #cbd5e1;
+                padding: 4px 0;
+                font-size: 11px;
+                font-weight: 700;
+              }
+              .payment-row span:first-child { min-width: 0; word-break: break-word; }
+              .payment-row span:last-child { text-align: right; white-space: nowrap; }
+              .empty-row { border-bottom: 1px dashed #cbd5e1; padding: 5px 0; text-align: center; color: #6b7280; font-size: 11px; }
               .totals { border-top: 1px dashed #94a3b8; padding-top: 4px; margin-top: 2px; }
               .totals div {
                 display: grid;
@@ -2058,17 +2082,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                 <div class="meta-item"><b>Código</b>${escapeHtml(printablePedido.codigo ?? '-')}</div>
               </div>
 
-              <table>
-                <thead>
-                  <tr>
-                    <th>Producto</th>
-                    <th style="text-align:center;">Cant</th>
-                    <th style="text-align:right;">P.Unit</th>
-                    <th style="text-align:right;">Subt.</th>
-                  </tr>
-                </thead>
-                <tbody>${rowsHtml}</tbody>
-              </table>
+              <div class="items">${rowsHtml}</div>
 
               <div class="totals">
                 <div><span>Subtotal</span><span>${formatCurrency(subtotal)}</span></div>
@@ -2077,15 +2091,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
               </div>
 
               <div class="section-title">Pagos</div>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Método</th>
-                    <th style="text-align:right;">Monto</th>
-                  </tr>
-                </thead>
-                <tbody>${paymentsHtml}</tbody>
-              </table>
+              <div class="payments">${paymentsHtml}</div>
 
               <div class="totals">
                 ${paymentTotalsHtml}

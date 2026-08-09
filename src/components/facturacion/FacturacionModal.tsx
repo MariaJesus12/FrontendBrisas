@@ -1688,10 +1688,10 @@ export default function FacturacionModal({
                 `Método #${payment.metodoPagoId}`
 
               const amount = Number(payment.montoColones ?? payment.monto ?? 0)
-              return `<tr><td>${escapeHtml(methodName)}</td><td style="text-align:right;">${formatCRC(Number.isFinite(amount) ? amount : 0)}</td></tr>`
+              return `<div class="payment-row"><span>${escapeHtml(methodName)}</span><span>${formatCRC(Number.isFinite(amount) ? amount : 0)}</span></div>`
             })
             .join('')
-        : '<tr><td colspan="2" style="text-align:center;color:#6b7280;">Sin pagos registrados</td></tr>'
+        : '<div class="empty-row">Sin pagos registrados</div>'
 
     const totalPagado = scopePayments.reduce((sum, payment) => {
       const amount = Number(payment.montoColones ?? payment.monto ?? 0)
@@ -1726,14 +1726,12 @@ export default function FacturacionModal({
     const rowsHtml =
       lines.length > 0
         ? lines
-            .map(
-              (line) => {
-                const note = line.observation ? `<div class="item-note">Obs: ${escapeHtml(line.observation)}</div>` : ''
-                return `<tr><td><div class="item-name">${escapeHtml(line.label)}</div>${note}</td><td style="text-align:center;">${line.quantity > 0 ? line.quantity : '-'}</td><td style="text-align:right;">${formatCRC(Number.isFinite(line.unitPrice) ? line.unitPrice : 0)}</td><td style="text-align:right;">${formatCRC(line.amount)}</td></tr>`
-              },
-            )
+            .map((line) => {
+              const note = line.observation ? `<div class="item-note">Obs: ${escapeHtml(line.observation)}</div>` : ''
+              return `<div class="item-row"><div class="item-name">${escapeHtml(line.label)}</div>${note}<div class="item-meta"><span>Cant: ${line.quantity > 0 ? line.quantity : '-'}</span><span>PU: ${formatCRC(Number.isFinite(line.unitPrice) ? line.unitPrice : 0)}</span><span>Subt: ${formatCRC(line.amount)}</span></div></div>`
+            })
             .join('')
-        : '<tr><td colspan="4" style="text-align:center;color:#6b7280;">Sin productos</td></tr>'
+        : '<div class="empty-row">Sin productos</div>'
 
     const printedDate = now.toLocaleDateString('es-CR')
     const printedTime = now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' })
@@ -1776,17 +1774,34 @@ export default function FacturacionModal({
               font-size: 12px;
             }
             .meta-item b { display: block; color: #374151; font-weight: 800; margin-bottom: 1px; }
-            table { width: 100%; border-collapse: collapse; margin-bottom: 8px; table-layout: fixed; }
-            th, td { border-bottom: 1px dashed #cbd5e1; padding: 4px 1px; font-size: 11px; vertical-align: top; }
-            th { text-align: left; color: #1f2937; font-weight: 800; font-size: 10px; line-height: 1.15; }
-            th:nth-child(1), td:nth-child(1) { width: 43%; }
-            th:nth-child(2), td:nth-child(2) { width: 11%; }
-            th:nth-child(3), td:nth-child(3) { width: 19%; }
-            th:nth-child(4), td:nth-child(4) { width: 27%; }
-            td:nth-child(2), td:nth-child(3), td:nth-child(4) { white-space: nowrap; }
+            .items { margin-bottom: 8px; }
+            .item-row { border-bottom: 1px dashed #cbd5e1; padding: 5px 0; }
             .item-name { font-weight: 800; color: #111827; word-break: break-word; }
             .item-note { font-size: 11px; font-weight: 700; color: #4b5563; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
+            .item-meta {
+              display: grid;
+              grid-template-columns: repeat(3, minmax(0, 1fr));
+              gap: 4px;
+              margin-top: 4px;
+              font-size: 10px;
+              font-weight: 700;
+              color: #1f2937;
+            }
+            .item-meta span:nth-child(2), .item-meta span:nth-child(3) { text-align: right; }
             .section-title { font-size: 12px; font-weight: 900; color: #111827; margin: 8px 0 3px; text-transform: uppercase; }
+            .payments { margin-bottom: 8px; }
+            .payment-row {
+              display: grid;
+              grid-template-columns: minmax(0, 1fr) auto;
+              column-gap: 6px;
+              border-bottom: 1px dashed #cbd5e1;
+              padding: 4px 0;
+              font-size: 11px;
+              font-weight: 700;
+            }
+            .payment-row span:first-child { min-width: 0; word-break: break-word; }
+            .payment-row span:last-child { text-align: right; white-space: nowrap; }
+            .empty-row { border-bottom: 1px dashed #cbd5e1; padding: 5px 0; text-align: center; color: #6b7280; font-size: 11px; }
             .totals { border-top: 1px dashed #94a3b8; padding-top: 4px; margin-top: 2px; }
             .totals div {
               display: grid;
@@ -1823,17 +1838,7 @@ export default function FacturacionModal({
               <div class="meta-item"><b>Código</b>${escapeHtml(pedido?.codigo ?? '-')}</div>
             </div>
 
-            <table>
-              <thead>
-                <tr>
-                  <th>Producto</th>
-                  <th style="text-align:center;">Cant</th>
-                  <th style="text-align:right;">P.Unit</th>
-                  <th style="text-align:right;">Subt.</th>
-                </tr>
-              </thead>
-              <tbody>${rowsHtml}</tbody>
-            </table>
+            <div class="items">${rowsHtml}</div>
 
             <div class="totals">
               <div><span>Subtotal</span><span>${formatCRC(scopeAmounts.subtotal)}</span></div>
@@ -1842,15 +1847,7 @@ export default function FacturacionModal({
             </div>
 
             <div class="section-title">Pagos</div>
-            <table>
-              <thead>
-                <tr>
-                  <th>Método</th>
-                  <th style="text-align:right;">Monto</th>
-                </tr>
-              </thead>
-              <tbody>${paymentsHtml}</tbody>
-            </table>
+            <div class="payments">${paymentsHtml}</div>
 
             <div class="totals">
               ${paymentTotalsHtml}
