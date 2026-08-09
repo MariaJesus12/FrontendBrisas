@@ -13,6 +13,7 @@ import { loginSchema, type LoginFormData } from '@/schemas/auth.schema'
 import { authService } from '@/services/auth.service'
 import { useAuth } from '@/hooks/useAuth'
 import { getDefaultRouteByRole } from '@/utils/roles'
+import logoImage from '@/assets/logo.png'
 
 // ── Paleta Brisas ───────────────────────────────────────────
 const COLOR_RED = '#C41E3A'
@@ -21,7 +22,7 @@ const COLOR_BLACK = '#000000'
 const COLOR_GRAY = '#E8E8E8'
 
 // ── Logo URL ─────────────────────────────────────────────────
-const LOGO_URL = new URL('@/assets/logobrisassinfondo.jpeg', import.meta.url).href
+const LOGO_URL = logoImage
 
 // ── Decorative Food Elements - Full Background ─────────────────
 const FoodDecorations = () => (
@@ -243,7 +244,7 @@ export default function LoginPage() {
             src={LOGO_URL}
             alt="Brisas del Lago"
             onError={() => {
-              console.warn('Logo not found at src/assets/logobrisassinfondo.jpeg')
+              console.warn('Logo not found at src/assets/logo.png')
             }}
             sx={{
               maxWidth: '100%',

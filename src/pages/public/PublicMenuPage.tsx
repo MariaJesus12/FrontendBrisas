@@ -37,6 +37,7 @@ import {
 import type { Category, Product, DishOfMonth } from '@/types/menu.types'
 import type { Announcement, AnnouncementType } from '@/types/announcement.types'
 import type { RestaurantConfig } from '@/types/configuracion-restaurante.types'
+import logoImage from '@/assets/logo.png'
 
 const COLOR_GOLD = '#D4AF37'
 const COLOR_BLACK = '#070707'
@@ -51,7 +52,7 @@ const crcFormatter = new Intl.NumberFormat('es-CR', {
   maximumFractionDigits: 0,
 })
 
-const LOGO_URL = new URL('@/assets/logobrisassinfondo.jpeg', import.meta.url).href
+const LOGO_URL = logoImage
 
 const DEFAULT_RESTAURANT_CONFIG: RestaurantConfig = {
   nombre: '',
