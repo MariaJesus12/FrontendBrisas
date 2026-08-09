@@ -2022,7 +2022,24 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
               .item-note { font-size: 11px; font-weight: 700; color: #4b5563; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
               .section-title { font-size: 12px; font-weight: 900; color: #111827; margin: 8px 0 3px; text-transform: uppercase; }
               .totals { border-top: 1px dashed #94a3b8; padding-top: 4px; margin-top: 2px; }
-              .totals div { display: flex; justify-content: space-between; gap: 8px; margin: 3px 0; font-size: 12px; font-weight: 700; }
+              .totals div {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) auto;
+                align-items: start;
+                column-gap: 6px;
+                margin: 4px 0;
+                font-size: 12px;
+                font-weight: 700;
+                line-height: 1.25;
+              }
+              .totals div span:first-child {
+                min-width: 0;
+                word-break: break-word;
+              }
+              .totals div span:last-child {
+                text-align: right;
+                white-space: nowrap;
+              }
               .total { font-weight: 900; font-size: 14px; color: #111827; }
             </style>
           </head>
