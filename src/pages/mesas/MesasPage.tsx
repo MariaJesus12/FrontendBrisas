@@ -39,7 +39,7 @@ import { pedidoSchema } from '@/schemas/pedido.schema'
 import type { Mesa } from '@/types/mesa.types'
 import type { Product } from '@/types/menu.types'
 import type { CreatePedidoDto, Pedido, PedidoDetalle, UpdatePedidoDto } from '@/types/pedido.types'
-import { prepareKitchenPrintWindow, printKitchenTicket } from '@/utils/kitchenPrint'
+import { openKitchenPrintPreview } from '@/utils/kitchenPrint'
 import { normalizeRole } from '@/utils/roles'
 
 const COLOR_GOLD = '#D4AF37'
@@ -1183,8 +1183,6 @@ export default function MesasPage() {
       toast.error('No se pudo abrir la ventana de impresión. Revisa el bloqueador de popups.')
       return
     }
-    prepareKitchenPrintWindow(printWindow)
-
     if (hasDraftPedidoLineData()) {
       const saved = await handleSavePedido()
       if (!saved) {
@@ -1203,21 +1201,40 @@ export default function MesasPage() {
             ? Number(selectedMesa?.numero ?? selectedPedido.mesa?.numero)
             : undefined,
         productos: currentPedidoDetails.map((detail) => ({
-          producto: detail.producto?.nombre ?? detail.productoNombre ?? `Producto #${detail.productoId}`,
+          producto:
+            detail.producto?.nombre ??
+            detail.productoNombre ??
+            products.find((product) => product.id === detail.productoId)?.nombre ??
+            `Producto #${detail.productoId}`,
           cantidad: Number(detail.cantidad ?? 0) > 0 ? Number(detail.cantidad) : 1,
           observacion: detail.observacion?.trim() || undefined,
         })),
       }
 
-      await pedidosService.sendToKitchen(pedidoId, kitchenPayload)
-      printKitchenTicket(printWindow, {
+      openKitchenPrintPreview(printWindow, {
         pedidoId,
         codigo: selectedPedido.codigo,
         locationLabel: selectedMesa?.numero ? `Mesa #${selectedMesa.numero}` : undefined,
         productos: kitchenPayload.productos,
+      }, async () => {
+        setSaving(true)
+        try {
+          await pedidosService.sendToKitchen(pedidoId, kitchenPayload)
+          toast.success('Comanda enviada a cocina.')
+          await Promise.all([loadMesaPedido(Number(selectedMesa?.id ?? selectedPedido.mesaId ?? 0)), loadMesas()])
+          return { ok: true }
+        } catch (requestError) {
+          const backendMessage =
+            axios.isAxiosError(requestError) && requestError.response
+              ? extractBackendMessage(requestError.response.data)
+              : ''
+          const message = backendMessage || 'No fue posible enviar la comanda a cocina.'
+          toast.error(message)
+          return { ok: false, message }
+        } finally {
+          setSaving(false)
+        }
       })
-      toast.success('Comanda enviada a cocina.')
-      await Promise.all([loadMesaPedido(Number(selectedMesa?.id ?? selectedPedido.mesaId ?? 0)), loadMesas()])
     } catch (requestError) {
       printWindow.close()
       const backendMessage =

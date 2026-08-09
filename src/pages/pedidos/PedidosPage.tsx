@@ -60,7 +60,7 @@ import type {
   PagoPedido,
   TipoPedido,
 } from '@/types/pedido.types'
-import { prepareKitchenPrintWindow, printKitchenTicket } from '@/utils/kitchenPrint'
+import { openKitchenPrintPreview } from '@/utils/kitchenPrint'
 import { normalizeRole } from '@/utils/roles'
 
 const COLOR_GOLD = '#D4AF37'
@@ -2095,8 +2095,6 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
       toast.error('No se pudo abrir la ventana de impresión. Revisa el bloqueador de popups.')
       return
     }
-    prepareKitchenPrintWindow(printWindow)
-
     setSaving(true)
     try {
       const kitchenPayload: SendToKitchenPayload = {
@@ -2117,8 +2115,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
         })),
       }
 
-      await pedidosService.sendToKitchen(pedidoId, kitchenPayload)
-      printKitchenTicket(printWindow, {
+      openKitchenPrintPreview(printWindow, {
         pedidoId,
         codigo: selectedPedido?.codigo,
         locationLabel:
@@ -2128,12 +2125,28 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
               ? 'Pedido para llevar'
               : undefined,
         productos: kitchenPayload.productos,
+      }, async () => {
+        setSaving(true)
+        try {
+          await pedidosService.sendToKitchen(pedidoId, kitchenPayload)
+          toast.success('Comanda enviada a cocina.')
+          await loadPedidos()
+          if (selectedPedido) {
+            await openDetailsDialog({ ...selectedPedido, id: pedidoId })
+          }
+          return { ok: true }
+        } catch (requestError) {
+          const backendMessage =
+            axios.isAxiosError(requestError) && requestError.response
+              ? extractBackendMessage(requestError.response.data)
+              : ''
+          const message = backendMessage || 'No fue posible enviar la comanda a cocina.'
+          toast.error(message)
+          return { ok: false, message }
+        } finally {
+          setSaving(false)
+        }
       })
-      toast.success('Comanda enviada a cocina.')
-      await loadPedidos()
-      if (selectedPedido) {
-        await openDetailsDialog({ ...selectedPedido, id: pedidoId })
-      }
     } catch (requestError) {
       printWindow.close()
       const backendMessage =

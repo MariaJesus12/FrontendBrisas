@@ -12,6 +12,15 @@ export interface KitchenTicketData {
   productos: KitchenTicketLine[]
 }
 
+interface KitchenPrintConfirmResult {
+  ok: boolean
+  message?: string
+}
+
+type KitchenPrintWindow = Window & {
+  __confirmKitchenPrint__?: () => Promise<KitchenPrintConfirmResult>
+}
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll('&', '&amp;')
@@ -28,33 +37,14 @@ function formatPrintedAt(value: Date): string {
   }).format(value)
 }
 
-export function prepareKitchenPrintWindow(printWindow: Window) {
-  printWindow.document.open()
-  printWindow.document.write(`<!doctype html>
-<html lang="es">
-  <head>
-    <meta charset="UTF-8" />
-    <title>Preparando comanda...</title>
-    <style>
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        font-family: Arial, sans-serif;
-        background: #fff;
-        color: #111;
-      }
-    </style>
-  </head>
-  <body>
-    <p>Preparando comanda...</p>
-  </body>
-</html>`)
-  printWindow.document.close()
-}
+export function openKitchenPrintPreview(
+  printWindow: Window,
+  ticket: KitchenTicketData,
+  onConfirmKitchenPrint: () => Promise<KitchenPrintConfirmResult>,
+) {
+  const previewWindow = printWindow as KitchenPrintWindow
+  previewWindow.__confirmKitchenPrint__ = onConfirmKitchenPrint
 
-export function printKitchenTicket(printWindow: Window, ticket: KitchenTicketData) {
   const printedAt = ticket.printedAt ?? new Date()
   const productsHtml =
     ticket.productos.length > 0
@@ -73,8 +63,8 @@ export function printKitchenTicket(printWindow: Window, ticket: KitchenTicketDat
     ? `<div class="meta-row"><span class="meta-label">Origen</span><span class="meta-value">${escapeHtml(ticket.locationLabel)}</span></div>`
     : ''
 
-  printWindow.document.open()
-  printWindow.document.write(`<!doctype html>
+  previewWindow.document.open()
+  previewWindow.document.write(`<!doctype html>
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
@@ -155,6 +145,35 @@ export function printKitchenTicket(printWindow: Window, ticket: KitchenTicketDat
         font-size: 10px;
         padding: 8px 0;
       }
+      .actions {
+        margin: 10px 0 8px;
+      }
+      .button {
+        width: 100%;
+        border: 0;
+        border-radius: 6px;
+        padding: 10px 12px;
+        font: inherit;
+        font-weight: 700;
+        background: #111827;
+        color: #fff;
+        cursor: pointer;
+      }
+      .button:disabled {
+        opacity: 0.65;
+        cursor: wait;
+      }
+      .status {
+        margin-top: 6px;
+        font-size: 10px;
+        text-align: center;
+        min-height: 14px;
+      }
+      @media print {
+        .actions {
+          display: none;
+        }
+      }
     </style>
   </head>
   <body>
@@ -169,10 +188,50 @@ export function printKitchenTicket(printWindow: Window, ticket: KitchenTicketDat
       <section>
         ${productsHtml}
       </section>
+      <section class="actions">
+        <button id="kitchen-print-button" class="button" type="button">Imprimir y enviar a cocina</button>
+        <div id="kitchen-print-status" class="status">Revisa la comanda y confirma la impresión.</div>
+      </section>
     </main>
+    <script>
+      const button = document.getElementById('kitchen-print-button')
+      const status = document.getElementById('kitchen-print-status')
+
+      async function handleConfirmPrint() {
+        if (!button || !status || typeof window.__confirmKitchenPrint__ !== 'function') {
+          return
+        }
+
+        button.disabled = true
+        status.textContent = 'Enviando comanda a cocina...'
+
+        try {
+          const result = await window.__confirmKitchenPrint__()
+          if (!result || !result.ok) {
+            status.textContent = result && result.message ? result.message : 'No fue posible enviar la comanda.'
+            button.disabled = false
+            return
+          }
+
+          status.textContent = 'Abriendo selector de impresora...'
+          window.focus()
+          window.print()
+        } catch {
+          status.textContent = 'No fue posible enviar la comanda.'
+          button.disabled = false
+        }
+      }
+
+      button && button.addEventListener('click', () => {
+        void handleConfirmPrint()
+      })
+
+      window.addEventListener('afterprint', () => {
+        window.close()
+      })
+    </script>
   </body>
 </html>`)
-  printWindow.document.close()
-  printWindow.focus()
-  printWindow.print()
+  previewWindow.document.close()
+  previewWindow.focus()
 }
