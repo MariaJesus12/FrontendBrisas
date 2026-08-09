@@ -39,6 +39,7 @@ import { pedidoSchema } from '@/schemas/pedido.schema'
 import type { Mesa } from '@/types/mesa.types'
 import type { Product } from '@/types/menu.types'
 import type { CreatePedidoDto, Pedido, PedidoDetalle, UpdatePedidoDto } from '@/types/pedido.types'
+import { prepareKitchenPrintWindow, printKitchenTicket } from '@/utils/kitchenPrint'
 import { normalizeRole } from '@/utils/roles'
 
 const COLOR_GOLD = '#D4AF37'
@@ -1184,6 +1185,13 @@ export default function MesasPage() {
       }
     }
 
+    const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=420,height=720')
+    if (!printWindow) {
+      toast.error('Permite ventanas emergentes para imprimir la comanda y elegir la impresora.')
+      return
+    }
+    prepareKitchenPrintWindow(printWindow)
+
     setSaving(true)
     try {
       const kitchenPayload: SendToKitchenPayload = {
@@ -1201,9 +1209,16 @@ export default function MesasPage() {
       }
 
       await pedidosService.sendToKitchen(pedidoId, kitchenPayload)
+      printKitchenTicket(printWindow, {
+        pedidoId,
+        codigo: selectedPedido.codigo,
+        locationLabel: selectedMesa?.numero ? `Mesa #${selectedMesa.numero}` : undefined,
+        productos: kitchenPayload.productos,
+      })
       toast.success('Comanda enviada a cocina.')
       await Promise.all([loadMesaPedido(Number(selectedMesa?.id ?? selectedPedido.mesaId ?? 0)), loadMesas()])
     } catch (requestError) {
+      printWindow.close()
       const backendMessage =
         axios.isAxiosError(requestError) && requestError.response
           ? extractBackendMessage(requestError.response.data)

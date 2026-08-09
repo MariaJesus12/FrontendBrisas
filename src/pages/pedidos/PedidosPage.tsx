@@ -60,6 +60,7 @@ import type {
   PagoPedido,
   TipoPedido,
 } from '@/types/pedido.types'
+import { prepareKitchenPrintWindow, printKitchenTicket } from '@/utils/kitchenPrint'
 import { normalizeRole } from '@/utils/roles'
 
 const COLOR_GOLD = '#D4AF37'
@@ -1865,22 +1866,46 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
           <head>
             <title>Reimpresión - Pedido #${printablePedido.id}</title>
             <style>
-              body { font-family: 'Segoe UI', Arial, sans-serif; padding: 12px; color: #1f2937; }
-              .ticket { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; }
-              .header { text-align: center; margin-bottom: 10px; }
-              .restaurant { font-size: 20px; font-weight: 800; letter-spacing: 0.3px; }
-              .subtitle { font-size: 12px; color: #6b7280; margin-top: 2px; }
-              .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; margin: 10px 0 12px; font-size: 12px; }
-              .meta-item b { display: block; color: #6b7280; font-weight: 600; margin-bottom: 2px; }
-              table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
-              th, td { border-bottom: 1px solid #eceff3; padding: 6px 4px; font-size: 12px; vertical-align: top; }
-              th { text-align: left; color: #475569; font-weight: 700; }
-              .item-name { font-weight: 600; color: #111827; }
-              .item-note { font-size: 11px; color: #6b7280; margin-top: 2px; }
-              .section-title { font-size: 12px; font-weight: 700; color: #374151; margin: 10px 0 4px; }
-              .totals { border-top: 1px dashed #cbd5e1; padding-top: 6px; }
-              .totals div { display: flex; justify-content: space-between; margin: 4px 0; font-size: 12px; }
-              .total { font-weight: 800; font-size: 14px; color: #111827; }
+              @page { margin: 3mm; size: 80mm auto; }
+              html, body {
+                margin: 0 auto;
+                padding: 0;
+                width: 74mm;
+                background: #fff;
+                color: #111827;
+                font-family: 'Segoe UI', Arial, sans-serif;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+              body { padding: 2mm 0; }
+              .ticket { padding: 0; }
+              .header { text-align: center; margin-bottom: 8px; }
+              .restaurant { font-size: 16px; font-weight: 800; letter-spacing: 0.2px; }
+              .subtitle { font-size: 10px; color: #4b5563; margin-top: 1px; }
+              .meta-grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 4px 8px;
+                margin: 8px 0;
+                padding: 6px 0;
+                border-top: 1px dashed #94a3b8;
+                border-bottom: 1px dashed #94a3b8;
+                font-size: 10px;
+              }
+              .meta-item b { display: block; color: #4b5563; font-weight: 700; margin-bottom: 1px; }
+              table { width: 100%; border-collapse: collapse; margin-bottom: 8px; table-layout: fixed; }
+              th, td { border-bottom: 1px dashed #cbd5e1; padding: 4px 2px; font-size: 10px; vertical-align: top; }
+              th { text-align: left; color: #334155; font-weight: 700; }
+              th:nth-child(1), td:nth-child(1) { width: 46%; }
+              th:nth-child(2), td:nth-child(2) { width: 12%; }
+              th:nth-child(3), td:nth-child(3) { width: 20%; }
+              th:nth-child(4), td:nth-child(4) { width: 22%; }
+              .item-name { font-weight: 600; color: #111827; word-break: break-word; }
+              .item-note { font-size: 9px; color: #6b7280; margin-top: 1px; white-space: pre-wrap; word-break: break-word; }
+              .section-title { font-size: 10px; font-weight: 800; color: #111827; margin: 8px 0 3px; text-transform: uppercase; }
+              .totals { border-top: 1px dashed #94a3b8; padding-top: 4px; margin-top: 2px; }
+              .totals div { display: flex; justify-content: space-between; margin: 2px 0; font-size: 10px; }
+              .total { font-weight: 800; font-size: 12px; color: #111827; }
             </style>
           </head>
           <body>
@@ -1964,6 +1989,13 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
       return
     }
 
+    const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=420,height=720')
+    if (!printWindow) {
+      toast.error('Permite ventanas emergentes para imprimir la comanda y elegir la impresora.')
+      return
+    }
+    prepareKitchenPrintWindow(printWindow)
+
     setSaving(true)
     try {
       const kitchenPayload: SendToKitchenPayload = {
@@ -1985,12 +2017,24 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
       }
 
       await pedidosService.sendToKitchen(pedidoId, kitchenPayload)
+      printKitchenTicket(printWindow, {
+        pedidoId,
+        codigo: selectedPedido?.codigo,
+        locationLabel:
+          Number(selectedPedido?.mesa?.numero ?? selectedPedido?.mesaId ?? 0) > 0
+            ? `Mesa #${Number(selectedPedido?.mesa?.numero ?? selectedPedido?.mesaId)}`
+            : selectedPedido?.tipo === 'LLEVAR'
+              ? 'Pedido para llevar'
+              : undefined,
+        productos: kitchenPayload.productos,
+      })
       toast.success('Comanda enviada a cocina.')
       await loadPedidos()
       if (selectedPedido) {
         await openDetailsDialog({ ...selectedPedido, id: pedidoId })
       }
     } catch (requestError) {
+      printWindow.close()
       const backendMessage =
         axios.isAxiosError(requestError) && requestError.response
           ? extractBackendMessage(requestError.response.data)
