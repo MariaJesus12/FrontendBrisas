@@ -1729,46 +1729,46 @@ export default function FacturacionModal({
         <head>
           <title>${escapeHtml(title)} - Pedido #${pedido?.id ?? pedidoId ?? ''}</title>
           <style>
-            @page { margin: 3mm; size: 80mm auto; }
+            @page { margin: 2mm; size: 58mm auto; }
             html, body {
               margin: 0 auto;
               padding: 0;
-              width: 74mm;
+              width: 54mm;
               background: #fff;
               color: #111827;
-              font-family: 'Segoe UI', Arial, sans-serif;
+              font-family: Arial, Helvetica, sans-serif;
               -webkit-print-color-adjust: exact;
               print-color-adjust: exact;
             }
-            body { padding: 2mm 0; }
+            body { padding: 1.5mm 0; }
             .ticket { padding: 0; }
-            .header { text-align: center; margin-bottom: 8px; }
-            .restaurant { font-size: 16px; font-weight: 800; letter-spacing: 0.2px; }
-            .subtitle { font-size: 10px; color: #4b5563; margin-top: 1px; }
+            .header { text-align: center; margin-bottom: 7px; }
+            .restaurant { font-size: 18px; font-weight: 900; letter-spacing: 0.15px; }
+            .subtitle { font-size: 11px; font-weight: 700; color: #374151; margin-top: 2px; }
             .meta-grid {
               display: grid;
-              grid-template-columns: 1fr 1fr;
-              gap: 4px 8px;
-              margin: 8px 0;
-              padding: 6px 0;
+              grid-template-columns: 1fr;
+              gap: 4px;
+              margin: 7px 0;
+              padding: 5px 0;
               border-top: 1px dashed #94a3b8;
               border-bottom: 1px dashed #94a3b8;
-              font-size: 10px;
+              font-size: 11px;
             }
-            .meta-item b { display: block; color: #4b5563; font-weight: 700; margin-bottom: 1px; }
+            .meta-item b { display: block; color: #374151; font-weight: 800; margin-bottom: 1px; }
             table { width: 100%; border-collapse: collapse; margin-bottom: 8px; table-layout: fixed; }
-            th, td { border-bottom: 1px dashed #cbd5e1; padding: 4px 2px; font-size: 10px; vertical-align: top; }
-            th { text-align: left; color: #334155; font-weight: 700; }
-            th:nth-child(1), td:nth-child(1) { width: 46%; }
-            th:nth-child(2), td:nth-child(2) { width: 12%; }
-            th:nth-child(3), td:nth-child(3) { width: 20%; }
-            th:nth-child(4), td:nth-child(4) { width: 22%; }
-            .item-name { font-weight: 600; color: #111827; word-break: break-word; }
-            .item-note { font-size: 9px; color: #6b7280; margin-top: 1px; white-space: pre-wrap; word-break: break-word; }
-            .section-title { font-size: 10px; font-weight: 800; color: #111827; margin: 8px 0 3px; text-transform: uppercase; }
+            th, td { border-bottom: 1px dashed #cbd5e1; padding: 5px 2px; font-size: 11px; vertical-align: top; }
+            th { text-align: left; color: #1f2937; font-weight: 800; }
+            th:nth-child(1), td:nth-child(1) { width: 40%; }
+            th:nth-child(2), td:nth-child(2) { width: 14%; }
+            th:nth-child(3), td:nth-child(3) { width: 22%; }
+            th:nth-child(4), td:nth-child(4) { width: 24%; }
+            .item-name { font-weight: 800; color: #111827; word-break: break-word; }
+            .item-note { font-size: 10px; font-weight: 700; color: #4b5563; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
+            .section-title { font-size: 11px; font-weight: 900; color: #111827; margin: 8px 0 3px; text-transform: uppercase; }
             .totals { border-top: 1px dashed #94a3b8; padding-top: 4px; margin-top: 2px; }
-            .totals div { display: flex; justify-content: space-between; margin: 2px 0; font-size: 10px; }
-            .total { font-weight: 800; font-size: 12px; color: #111827; }
+            .totals div { display: flex; justify-content: space-between; gap: 8px; margin: 3px 0; font-size: 11px; font-weight: 700; }
+            .total { font-weight: 900; font-size: 13px; color: #111827; }
           </style>
         </head>
         <body>

@@ -73,46 +73,47 @@ export function openKitchenPrintPreview(
       :root {
         color-scheme: light;
       }
-      @page { margin: 3mm; size: 80mm auto; }
+      @page { margin: 2mm; size: 58mm auto; }
       html, body {
         margin: 0 auto;
         padding: 0;
-        width: 72mm;
-        font-family: 'Courier New', monospace;
+        width: 54mm;
+        font-family: Arial, Helvetica, sans-serif;
         background: #fff;
         color: #000;
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
       }
-      body { padding: 2mm 0; }
+      body { padding: 1.5mm 0; }
       .ticket {
         width: 100%;
         margin: 0 auto;
       }
       h1 {
-        margin: 0 0 8px;
-        font-size: 16px;
+        margin: 0 0 7px;
+        font-size: 18px;
+        font-weight: 900;
         text-align: center;
         text-transform: uppercase;
       }
       .meta {
         border-top: 1px dashed #000;
         border-bottom: 1px dashed #000;
-        padding: 6px 0;
-        margin-bottom: 8px;
+        padding: 5px 0;
+        margin-bottom: 7px;
       }
       .meta-row {
         display: flex;
         justify-content: space-between;
         gap: 8px;
         margin-bottom: 3px;
-        font-size: 10px;
+        font-size: 11px;
       }
       .meta-row:last-child {
         margin-bottom: 0;
       }
       .meta-label {
-        font-weight: 700;
+        font-weight: 900;
       }
       .meta-value {
         text-align: right;
@@ -124,11 +125,11 @@ export function openKitchenPrintPreview(
       .line-main {
         display: flex;
         gap: 6px;
-        font-size: 11px;
-        font-weight: 700;
+        font-size: 13px;
+        font-weight: 900;
       }
       .qty {
-        min-width: 28px;
+        min-width: 32px;
       }
       .name {
         flex: 1;
@@ -136,13 +137,15 @@ export function openKitchenPrintPreview(
       }
       .note {
         margin-top: 2px;
-        padding-left: 34px;
-        font-size: 10px;
+        padding-left: 38px;
+        font-size: 11px;
+        font-weight: 700;
         white-space: pre-wrap;
         word-break: break-word;
       }
       .empty {
-        font-size: 10px;
+        font-size: 11px;
+        font-weight: 700;
         padding: 8px 0;
       }
       .actions {
@@ -154,7 +157,8 @@ export function openKitchenPrintPreview(
         border-radius: 6px;
         padding: 10px 12px;
         font: inherit;
-        font-weight: 700;
+        font-size: 12px;
+        font-weight: 900;
         background: #111827;
         color: #fff;
         cursor: pointer;
@@ -165,7 +169,8 @@ export function openKitchenPrintPreview(
       }
       .status {
         margin-top: 6px;
-        font-size: 10px;
+        font-size: 11px;
+        font-weight: 700;
         text-align: center;
         min-height: 14px;
       }
