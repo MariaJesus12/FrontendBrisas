@@ -1035,6 +1035,54 @@ export default function FacturacionModal({
     return amount
   }
 
+  function resolvePaymentAmountInCurrency(payment: PagoPedido, currency: 'CRC' | 'USD'): number {
+    const paymentCurrency = resolvePaymentCurrency(payment)
+
+    if (currency === 'USD') {
+      if (paymentCurrency === 'USD') {
+        const amountUSD = Number(payment.montoMoneda ?? payment.monto ?? 0)
+        return Number.isFinite(amountUSD) && amountUSD > 0 ? amountUSD : 0
+      }
+
+      const amountCRC = resolvePaymentAmountCRC(payment)
+      if (!Number.isFinite(amountCRC) || amountCRC <= 0 || !exchangeRate || exchangeRate <= 0) {
+        return 0
+      }
+
+      return amountCRC / exchangeRate
+    }
+
+    if (paymentCurrency === 'CRC') {
+      return resolvePaymentAmountCRC(payment)
+    }
+
+    const amountUSD = Number(payment.montoMoneda ?? payment.monto ?? 0)
+    if (!Number.isFinite(amountUSD) || amountUSD <= 0 || !exchangeRate || exchangeRate <= 0) {
+      return 0
+    }
+
+    return amountUSD * exchangeRate
+  }
+
+  function resolvePaymentChangeInCurrency(payment: PagoPedido, currency: 'CRC' | 'USD'): number {
+    if (currency === 'USD') {
+      const changeUSD = Number(payment.vuelto ?? 0)
+      if (Number.isFinite(changeUSD) && changeUSD > 0 && resolvePaymentCurrency(payment) === 'USD') {
+        return changeUSD
+      }
+
+      const changeCRC = Number(payment.vueltoColones ?? 0)
+      if (!Number.isFinite(changeCRC) || changeCRC <= 0 || !exchangeRate || exchangeRate <= 0) {
+        return 0
+      }
+
+      return changeCRC / exchangeRate
+    }
+
+    const changeCRC = Number(payment.vueltoColones ?? payment.vuelto ?? 0)
+    return Number.isFinite(changeCRC) && changeCRC > 0 ? changeCRC : 0
+  }
+
   function isValidRegisteredPayment(payment: PagoPedido): boolean {
     const methodId = toPositiveInt(payment.metodoPagoId)
     const methodName = String(payment.metodoPago?.nombre ?? '').trim()
@@ -1632,6 +1680,29 @@ export default function FacturacionModal({
       return sum + (Number.isFinite(change) && change > 0 ? change : 0)
     }, 0)
 
+    const hasUsdPayments = scopePayments.some((payment) => resolvePaymentCurrency(payment) === 'USD')
+    const hasCrcPayments = scopePayments.some((payment) => resolvePaymentCurrency(payment) === 'CRC')
+    const totalPagadoUSD = scopePayments.reduce((sum, payment) => sum + resolvePaymentAmountInCurrency(payment, 'USD'), 0)
+    const totalVueltoUSD = scopePayments.reduce((sum, payment) => sum + resolvePaymentChangeInCurrency(payment, 'USD'), 0)
+
+    const paymentTotalsHtml = hasUsdPayments
+      ? [
+          hasCrcPayments && totalPagado > 0
+            ? `<div><span>Total pagado CRC</span><span>${formatCRC(totalPagado)}</span></div>`
+            : '',
+          `<div><span>Total pagado USD</span><span>${formatUSD(totalPagadoUSD)}</span></div>`,
+          hasCrcPayments && totalVuelto > 0 ? `<div><span>Vuelto CRC</span><span>${formatCRC(totalVuelto)}</span></div>` : '',
+          totalVueltoUSD > 0 ? `<div><span>Vuelto USD</span><span>${formatUSD(totalVueltoUSD)}</span></div>` : '',
+        ]
+          .filter(Boolean)
+          .join('')
+      : [
+          `<div><span>Total pagado</span><span>${formatCRC(totalPagado)}</span></div>`,
+          totalVuelto > 0 ? `<div><span>Vuelto</span><span>${formatCRC(totalVuelto)}</span></div>` : '',
+        ]
+          .filter(Boolean)
+          .join('')
+
     const rowsHtml =
       lines.length > 0
         ? lines
@@ -1744,8 +1815,7 @@ export default function FacturacionModal({
             </table>
 
             <div class="totals">
-              <div><span>Total pagado</span><span>${formatCRC(totalPagado)}</span></div>
-              ${totalVuelto > 0 ? `<div><span>Vuelto</span><span>${formatCRC(totalVuelto)}</span></div>` : ''}
+              ${paymentTotalsHtml}
             </div>
           </div>
         </body>

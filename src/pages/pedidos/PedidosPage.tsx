@@ -292,6 +292,21 @@ function normalizePagoRecord(item: unknown): PagoPedido | null {
         ? (record.metodoPago as PagoPedido['metodoPago'])
         : undefined,
     monto: Number.isFinite(monto) ? monto : 0,
+    montoMoneda: Number(record.montoMoneda ?? record.monto_moneda ?? record.montoDolares ?? record.monto_dolares) || undefined,
+    moneda:
+      typeof record.moneda === 'string'
+        ? record.moneda
+        : typeof record.monedaCodigo === 'string'
+          ? record.monedaCodigo
+          : typeof record.moneda_codigo === 'string'
+            ? record.moneda_codigo
+            : typeof record.currency === 'string'
+              ? record.currency
+              : undefined,
+    monedaId: toPositiveNumber(record.monedaId ?? record.moneda_id) ?? undefined,
+    montoColones: Number(record.montoColones ?? record.monto_colones ?? record.montoCRC ?? record.monto_crc) || undefined,
+    vuelto: Number(record.vuelto) || undefined,
+    vueltoColones: Number(record.vueltoColones ?? record.vuelto_colones ?? record.vueltoCRC ?? record.vuelto_crc) || undefined,
     referencia: typeof record.referencia === 'string' ? record.referencia : undefined,
   }
 }
@@ -361,6 +376,70 @@ function formatCurrency(value: number | null | undefined): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   }).format(safeValue)
+}
+
+function formatUSD(value: number | null | undefined): string {
+  const safeValue = Number.isFinite(Number(value)) ? Number(value) : 0
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(safeValue)
+}
+
+function normalizeCurrencyCode(value: unknown): string {
+  const normalized = String(value ?? '')
+    .trim()
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+
+  if (!normalized) {
+    return ''
+  }
+
+  if (normalized === 'USD' || normalized.includes('DOLAR') || normalized === '$') {
+    return 'USD'
+  }
+
+  if (normalized === 'CRC' || normalized.includes('COLON') || normalized.includes('COLONES') || normalized === '₡') {
+    return 'CRC'
+  }
+
+  return normalized
+}
+
+function resolvePaymentCurrency(payment: PagoPedido): 'CRC' | 'USD' {
+  return normalizeCurrencyCode(payment.moneda) === 'USD' ? 'USD' : 'CRC'
+}
+
+function resolvePaymentAmountInCurrency(payment: PagoPedido, currency: 'CRC' | 'USD'): number {
+  if (currency === 'USD') {
+    if (resolvePaymentCurrency(payment) !== 'USD') {
+      return 0
+    }
+
+    const amountUSD = Number(payment.montoMoneda ?? payment.monto ?? 0)
+    return Number.isFinite(amountUSD) && amountUSD > 0 ? amountUSD : 0
+  }
+
+  const amountCRC = Number(payment.montoColones ?? payment.monto ?? 0)
+  return Number.isFinite(amountCRC) && amountCRC > 0 ? amountCRC : 0
+}
+
+function resolvePaymentChangeInCurrency(payment: PagoPedido, currency: 'CRC' | 'USD'): number {
+  if (currency === 'USD') {
+    if (resolvePaymentCurrency(payment) !== 'USD') {
+      return 0
+    }
+
+    const changeUSD = Number(payment.vuelto ?? 0)
+    return Number.isFinite(changeUSD) && changeUSD > 0 ? changeUSD : 0
+  }
+
+  const changeCRC = Number(payment.vueltoColones ?? payment.vuelto ?? 0)
+  return Number.isFinite(changeCRC) && changeCRC > 0 ? changeCRC : 0
 }
 
 function formatDateTime(value?: string): string {
@@ -1852,6 +1931,29 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
         return sum + (Number.isFinite(change) && change > 0 ? change : 0)
       }, 0)
 
+      const hasUsdPayments = printablePayments.some((payment) => resolvePaymentCurrency(payment) === 'USD')
+      const hasCrcPayments = printablePayments.some((payment) => resolvePaymentCurrency(payment) === 'CRC')
+      const totalPagadoUSD = printablePayments.reduce((sum, payment) => sum + resolvePaymentAmountInCurrency(payment, 'USD'), 0)
+      const totalVueltoUSD = printablePayments.reduce((sum, payment) => sum + resolvePaymentChangeInCurrency(payment, 'USD'), 0)
+
+      const paymentTotalsHtml = hasUsdPayments
+        ? [
+            hasCrcPayments && totalPagado > 0
+              ? `<div><span>Total pagado CRC</span><span>${formatCurrency(totalPagado)}</span></div>`
+              : '',
+            `<div><span>Total pagado USD</span><span>${formatUSD(totalPagadoUSD)}</span></div>`,
+            hasCrcPayments && totalVuelto > 0 ? `<div><span>Vuelto CRC</span><span>${formatCurrency(totalVuelto)}</span></div>` : '',
+            totalVueltoUSD > 0 ? `<div><span>Vuelto USD</span><span>${formatUSD(totalVueltoUSD)}</span></div>` : '',
+          ]
+            .filter(Boolean)
+            .join('')
+        : [
+            `<div><span>Total pagado</span><span>${formatCurrency(totalPagado)}</span></div>`,
+            totalVuelto > 0 ? `<div><span>Vuelto</span><span>${formatCurrency(totalVuelto)}</span></div>` : '',
+          ]
+            .filter(Boolean)
+            .join('')
+
       const printedDate = now.toLocaleDateString('es-CR')
       const printedTime = now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' })
 
@@ -1952,8 +2054,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
               </table>
 
               <div class="totals">
-                <div><span>Total pagado</span><span>${formatCurrency(totalPagado)}</span></div>
-                ${totalVuelto > 0 ? `<div><span>Vuelto</span><span>${formatCurrency(totalVuelto)}</span></div>` : ''}
+                ${paymentTotalsHtml}
               </div>
             </div>
           </body>
@@ -1989,9 +2090,9 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
       return
     }
 
-    const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=420,height=720')
+    const printWindow = window.open('', '_blank', 'width=420,height=720')
     if (!printWindow) {
-      toast.error('Permite ventanas emergentes para imprimir la comanda y elegir la impresora.')
+      toast.error('No se pudo abrir la ventana de impresión. Revisa el bloqueador de popups.')
       return
     }
     prepareKitchenPrintWindow(printWindow)

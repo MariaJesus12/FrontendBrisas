@@ -1178,19 +1178,20 @@ export default function MesasPage() {
       return
     }
 
-    if (hasDraftPedidoLineData()) {
-      const saved = await handleSavePedido()
-      if (!saved) {
-        return
-      }
-    }
-
-    const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=420,height=720')
+    const printWindow = window.open('', '_blank', 'width=420,height=720')
     if (!printWindow) {
-      toast.error('Permite ventanas emergentes para imprimir la comanda y elegir la impresora.')
+      toast.error('No se pudo abrir la ventana de impresión. Revisa el bloqueador de popups.')
       return
     }
     prepareKitchenPrintWindow(printWindow)
+
+    if (hasDraftPedidoLineData()) {
+      const saved = await handleSavePedido()
+      if (!saved) {
+        printWindow.close()
+        return
+      }
+    }
 
     setSaving(true)
     try {
