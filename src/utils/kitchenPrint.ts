@@ -30,13 +30,6 @@ function escapeHtml(value: string): string {
     .replaceAll("'", '&#39;')
 }
 
-function formatPrintedAt(value: Date): string {
-  return new Intl.DateTimeFormat('es-CR', {
-    dateStyle: 'short',
-    timeStyle: 'short',
-  }).format(value)
-}
-
 export function openKitchenPrintPreview(
   printWindow: Window,
   ticket: KitchenTicketData,
@@ -45,7 +38,6 @@ export function openKitchenPrintPreview(
   const previewWindow = printWindow as KitchenPrintWindow
   previewWindow.__confirmKitchenPrint__ = onConfirmKitchenPrint
 
-  const printedAt = ticket.printedAt ?? new Date()
   const productsHtml =
     ticket.productos.length > 0
       ? ticket.productos
@@ -59,9 +51,9 @@ export function openKitchenPrintPreview(
           .join('')
       : '<div class="empty">No hay productos para imprimir.</div>'
 
-  const locationHtml = ticket.locationLabel
-    ? `<div class="meta-row"><span class="meta-label">Origen</span><span class="meta-value">${escapeHtml(ticket.locationLabel)}</span></div>`
-    : ''
+  const headingLabel = ticket.locationLabel?.trim()
+    ? escapeHtml(ticket.locationLabel.trim().toUpperCase())
+    : 'COCINA'
 
   previewWindow.document.open()
   previewWindow.document.write(`<!doctype html>
@@ -90,55 +82,34 @@ export function openKitchenPrintPreview(
         margin: 0 auto;
       }
       h1 {
-        margin: 0 0 7px;
-        font-size: 18px;
+        margin: 0 0 8px;
+        font-size: 20px;
         font-weight: 900;
         text-align: center;
         text-transform: uppercase;
-      }
-      .meta {
-        border-top: 1px dashed #000;
-        border-bottom: 1px dashed #000;
-        padding: 5px 0;
-        margin-bottom: 7px;
-      }
-      .meta-row {
-        display: flex;
-        justify-content: space-between;
-        gap: 8px;
-        margin-bottom: 3px;
-        font-size: 11px;
-      }
-      .meta-row:last-child {
-        margin-bottom: 0;
-      }
-      .meta-label {
-        font-weight: 900;
-      }
-      .meta-value {
-        text-align: right;
+        letter-spacing: 0.4px;
       }
       .line {
-        padding: 5px 0;
+        padding: 7px 0;
         border-bottom: 1px dashed #000;
       }
       .line-main {
         display: flex;
         gap: 6px;
-        font-size: 13px;
+        font-size: 14px;
         font-weight: 900;
       }
       .qty {
-        min-width: 32px;
+        min-width: 34px;
       }
       .name {
         flex: 1;
         word-break: break-word;
       }
       .note {
-        margin-top: 2px;
+        margin-top: 3px;
         padding-left: 38px;
-        font-size: 11px;
+        font-size: 12px;
         font-weight: 700;
         white-space: pre-wrap;
         word-break: break-word;
@@ -183,13 +154,7 @@ export function openKitchenPrintPreview(
   </head>
   <body>
     <main class="ticket">
-      <h1>Comanda cocina</h1>
-      <section class="meta">
-        <div class="meta-row"><span class="meta-label">Pedido</span><span class="meta-value">#${ticket.pedidoId}</span></div>
-        ${ticket.codigo ? `<div class="meta-row"><span class="meta-label">Codigo</span><span class="meta-value">${escapeHtml(ticket.codigo)}</span></div>` : ''}
-        ${locationHtml}
-        <div class="meta-row"><span class="meta-label">Impresion</span><span class="meta-value">${escapeHtml(formatPrintedAt(printedAt))}</span></div>
-      </section>
+      <h1>${headingLabel}</h1>
       <section>
         ${productsHtml}
       </section>

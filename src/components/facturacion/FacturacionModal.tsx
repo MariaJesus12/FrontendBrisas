@@ -1083,6 +1083,29 @@ export default function FacturacionModal({
     return Number.isFinite(changeCRC) && changeCRC > 0 ? changeCRC : 0
   }
 
+  function resolvePaymentChangeCRC(payment: PagoPedido): number {
+    const paymentCurrency = resolvePaymentCurrency(payment)
+    const changeCRC = Number(payment.vueltoColones ?? 0)
+    if (Number.isFinite(changeCRC) && changeCRC > 0) {
+      return changeCRC
+    }
+
+    const changeRaw = Number(payment.vuelto ?? 0)
+    if (!Number.isFinite(changeRaw) || changeRaw <= 0) {
+      return 0
+    }
+
+    if (paymentCurrency === 'USD') {
+      if (!exchangeRate || exchangeRate <= 0) {
+        return 0
+      }
+
+      return changeRaw * exchangeRate
+    }
+
+    return changeRaw
+  }
+
   function isValidRegisteredPayment(payment: PagoPedido): boolean {
     const methodId = toPositiveInt(payment.metodoPagoId)
     const methodName = String(payment.metodoPago?.nombre ?? '').trim()
@@ -1675,10 +1698,7 @@ export default function FacturacionModal({
       return sum + (Number.isFinite(amount) ? amount : 0)
     }, 0)
 
-    const totalVuelto = scopePayments.reduce((sum, payment) => {
-      const change = Number(payment.vueltoColones ?? payment.vuelto ?? 0)
-      return sum + (Number.isFinite(change) && change > 0 ? change : 0)
-    }, 0)
+    const totalVuelto = scopePayments.reduce((sum, payment) => sum + resolvePaymentChangeCRC(payment), 0)
 
     const hasUsdPayments = scopePayments.some((payment) => resolvePaymentCurrency(payment) === 'USD')
     const hasCrcPayments = scopePayments.some((payment) => resolvePaymentCurrency(payment) === 'CRC')
@@ -1691,7 +1711,7 @@ export default function FacturacionModal({
             ? `<div><span>Total pagado CRC</span><span>${formatCRC(totalPagado)}</span></div>`
             : '',
           `<div><span>Total pagado USD</span><span>${formatUSD(totalPagadoUSD)}</span></div>`,
-          hasCrcPayments && totalVuelto > 0 ? `<div><span>Vuelto CRC</span><span>${formatCRC(totalVuelto)}</span></div>` : '',
+          totalVuelto > 0 ? `<div><span>Vuelto CRC</span><span>${formatCRC(totalVuelto)}</span></div>` : '',
           totalVueltoUSD > 0 ? `<div><span>Vuelto USD</span><span>${formatUSD(totalVueltoUSD)}</span></div>` : '',
         ]
           .filter(Boolean)
@@ -1729,22 +1749,22 @@ export default function FacturacionModal({
         <head>
           <title>${escapeHtml(title)} - Pedido #${pedido?.id ?? pedidoId ?? ''}</title>
           <style>
-            @page { margin: 2mm; size: 58mm auto; }
+            @page { margin: 1.5mm; size: 58mm auto; }
             html, body {
               margin: 0 auto;
               padding: 0;
-              width: 54mm;
+              width: 52mm;
               background: #fff;
               color: #111827;
               font-family: Arial, Helvetica, sans-serif;
               -webkit-print-color-adjust: exact;
               print-color-adjust: exact;
             }
-            body { padding: 1.5mm 0; }
+            body { padding: 1mm 0; }
             .ticket { padding: 0; }
             .header { text-align: center; margin-bottom: 7px; }
-            .restaurant { font-size: 18px; font-weight: 900; letter-spacing: 0.15px; }
-            .subtitle { font-size: 11px; font-weight: 700; color: #374151; margin-top: 2px; }
+            .restaurant { font-size: 19px; font-weight: 900; letter-spacing: 0.1px; }
+            .subtitle { font-size: 12px; font-weight: 800; color: #374151; margin-top: 2px; }
             .meta-grid {
               display: grid;
               grid-template-columns: 1fr;
@@ -1753,22 +1773,22 @@ export default function FacturacionModal({
               padding: 5px 0;
               border-top: 1px dashed #94a3b8;
               border-bottom: 1px dashed #94a3b8;
-              font-size: 11px;
+              font-size: 12px;
             }
             .meta-item b { display: block; color: #374151; font-weight: 800; margin-bottom: 1px; }
             table { width: 100%; border-collapse: collapse; margin-bottom: 8px; table-layout: fixed; }
-            th, td { border-bottom: 1px dashed #cbd5e1; padding: 5px 2px; font-size: 11px; vertical-align: top; }
+            th, td { border-bottom: 1px dashed #cbd5e1; padding: 5px 1px; font-size: 12px; vertical-align: top; }
             th { text-align: left; color: #1f2937; font-weight: 800; }
-            th:nth-child(1), td:nth-child(1) { width: 40%; }
-            th:nth-child(2), td:nth-child(2) { width: 14%; }
+            th:nth-child(1), td:nth-child(1) { width: 39%; }
+            th:nth-child(2), td:nth-child(2) { width: 13%; }
             th:nth-child(3), td:nth-child(3) { width: 22%; }
-            th:nth-child(4), td:nth-child(4) { width: 24%; }
+            th:nth-child(4), td:nth-child(4) { width: 26%; }
             .item-name { font-weight: 800; color: #111827; word-break: break-word; }
-            .item-note { font-size: 10px; font-weight: 700; color: #4b5563; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
-            .section-title { font-size: 11px; font-weight: 900; color: #111827; margin: 8px 0 3px; text-transform: uppercase; }
+            .item-note { font-size: 11px; font-weight: 700; color: #4b5563; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
+            .section-title { font-size: 12px; font-weight: 900; color: #111827; margin: 8px 0 3px; text-transform: uppercase; }
             .totals { border-top: 1px dashed #94a3b8; padding-top: 4px; margin-top: 2px; }
-            .totals div { display: flex; justify-content: space-between; gap: 8px; margin: 3px 0; font-size: 11px; font-weight: 700; }
-            .total { font-weight: 900; font-size: 13px; color: #111827; }
+            .totals div { display: flex; justify-content: space-between; gap: 8px; margin: 3px 0; font-size: 12px; font-weight: 700; }
+            .total { font-weight: 900; font-size: 14px; color: #111827; }
           </style>
         </head>
         <body>
