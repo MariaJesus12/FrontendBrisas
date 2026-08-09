@@ -2012,12 +2012,13 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
               }
               .meta-item b { display: block; color: #374151; font-weight: 800; margin-bottom: 1px; }
               table { width: 100%; border-collapse: collapse; margin-bottom: 8px; table-layout: fixed; }
-              th, td { border-bottom: 1px dashed #cbd5e1; padding: 5px 1px; font-size: 12px; vertical-align: top; }
-              th { text-align: left; color: #1f2937; font-weight: 800; }
-              th:nth-child(1), td:nth-child(1) { width: 39%; }
-              th:nth-child(2), td:nth-child(2) { width: 13%; }
-              th:nth-child(3), td:nth-child(3) { width: 22%; }
-              th:nth-child(4), td:nth-child(4) { width: 26%; }
+              th, td { border-bottom: 1px dashed #cbd5e1; padding: 4px 1px; font-size: 11px; vertical-align: top; }
+              th { text-align: left; color: #1f2937; font-weight: 800; font-size: 10px; line-height: 1.15; }
+              th:nth-child(1), td:nth-child(1) { width: 43%; }
+              th:nth-child(2), td:nth-child(2) { width: 11%; }
+              th:nth-child(3), td:nth-child(3) { width: 19%; }
+              th:nth-child(4), td:nth-child(4) { width: 27%; }
+              td:nth-child(2), td:nth-child(3), td:nth-child(4) { white-space: nowrap; }
               .item-name { font-weight: 800; color: #111827; word-break: break-word; }
               .item-note { font-size: 11px; font-weight: 700; color: #4b5563; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
               .section-title { font-size: 12px; font-weight: 900; color: #111827; margin: 8px 0 3px; text-transform: uppercase; }
@@ -2061,9 +2062,9 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                 <thead>
                   <tr>
                     <th>Producto</th>
-                    <th style="text-align:center;">Cant.</th>
-                    <th style="text-align:right;">Precio</th>
-                    <th style="text-align:right;">Subtotal</th>
+                    <th style="text-align:center;">Cant</th>
+                    <th style="text-align:right;">P.Unit</th>
+                    <th style="text-align:right;">Subt.</th>
                   </tr>
                 </thead>
                 <tbody>${rowsHtml}</tbody>
@@ -2079,7 +2080,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
               <table>
                 <thead>
                   <tr>
-                    <th>Método de pago</th>
+                    <th>Método</th>
                     <th style="text-align:right;">Monto</th>
                   </tr>
                 </thead>
