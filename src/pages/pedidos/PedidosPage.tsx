@@ -1998,15 +1998,15 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                 width: 52mm;
                 background: #fff;
                 color: #111827;
-                font-family: Arial, Helvetica, sans-serif;
+                font-family: Verdana, Geneva, sans-serif;
                 -webkit-print-color-adjust: exact;
                 print-color-adjust: exact;
               }
               body { padding: 1mm 0; }
               .ticket { padding: 0; }
               .header { text-align: center; margin-bottom: 7px; }
-              .restaurant { font-size: 19px; font-weight: 900; letter-spacing: 0.1px; }
-              .subtitle { font-size: 12px; font-weight: 800; color: #374151; margin-top: 2px; }
+              .restaurant { font-size: 19px; font-weight: 500; letter-spacing: 0.1px; }
+              .subtitle { font-size: 12px; font-weight: 400; color: #374151; margin-top: 2px; }
               .meta-grid {
                 display: grid;
                 grid-template-columns: 1fr;
@@ -2020,8 +2020,8 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
               .meta-item b { display: block; color: #374151; font-weight: 800; margin-bottom: 1px; }
               .items { margin-bottom: 8px; }
               .item-row { border-bottom: 1px dashed #cbd5e1; padding: 5px 0; }
-              .item-name { font-weight: 800; color: #111827; word-break: break-word; }
-              .item-note { font-size: 11px; font-weight: 700; color: #4b5563; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
+              .item-name { font-weight: 500; color: #111827; word-break: break-word; }
+              .item-note { font-size: 11px; font-weight: 400; color: #4b5563; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
               .item-meta {
                 display: grid;
                 grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2065,7 +2065,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                 text-align: right;
                 white-space: nowrap;
               }
-              .total { font-weight: 900; font-size: 14px; color: #111827; }
+              .total { font-weight: 500; font-size: 14px; color: #111827; }
             </style>
           </head>
           <body>
@@ -3073,16 +3073,6 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                             }}
                           />
                           <TextField
-                            label="Precio unitario"
-                            value={line.precioUnitario}
-                            onChange={(event) => updatePedidoLine(index, { precioUnitario: event.target.value })}
-                            type="number"
-                            sx={{
-                              '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
-                              '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
-                            }}
-                          />
-                          <TextField
                             label="Observación"
                             value={line.observacion}
                             onChange={(event) => updatePedidoLine(index, { observacion: event.target.value })}
@@ -3369,7 +3359,14 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                 select
                 label="Producto"
                 value={detailForm.productoId}
-                onChange={(event) => setDetailForm((current) => ({ ...current, productoId: event.target.value }))}
+                onChange={(event) => {
+                  const product = products.find((item) => String(item.id) === event.target.value)
+                  setDetailForm((current) => ({
+                    ...current,
+                    productoId: event.target.value,
+                    precioUnitario: product ? String(product.precio) : current.precioUnitario,
+                  }))
+                }}
                 fullWidth
                 sx={{
                   '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
@@ -3400,17 +3397,6 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
               label="Cantidad"
               value={detailForm.cantidad}
               onChange={(event) => setDetailForm((current) => ({ ...current, cantidad: event.target.value }))}
-              type="number"
-              fullWidth
-              sx={{
-                '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
-                '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
-              }}
-            />
-            <TextField
-              label="Precio unitario"
-              value={detailForm.precioUnitario}
-              onChange={(event) => setDetailForm((current) => ({ ...current, precioUnitario: event.target.value }))}
               type="number"
               fullWidth
               sx={{

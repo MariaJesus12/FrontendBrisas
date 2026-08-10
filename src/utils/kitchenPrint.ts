@@ -72,7 +72,7 @@ export function openKitchenPrintPreview(
         margin: 0 auto;
         padding: 0;
         width: 54mm;
-        font-family: Arial, Helvetica, sans-serif;
+        font-family: Verdana, Geneva, sans-serif;
         background: #fff;
         color: #000;
         -webkit-print-color-adjust: exact;
@@ -86,7 +86,7 @@ export function openKitchenPrintPreview(
       h1 {
         margin: 0 0 8px;
         font-size: 20px;
-        font-weight: 900;
+        font-weight: 500;
         text-align: center;
         text-transform: uppercase;
         letter-spacing: 0.4px;
@@ -99,7 +99,7 @@ export function openKitchenPrintPreview(
         display: flex;
         gap: 6px;
         font-size: 14px;
-        font-weight: 900;
+        font-weight: 400;
       }
       .qty {
         min-width: 34px;
@@ -112,13 +112,13 @@ export function openKitchenPrintPreview(
         margin-top: 3px;
         padding-left: 38px;
         font-size: 12px;
-        font-weight: 700;
+        font-weight: 400;
         white-space: pre-wrap;
         word-break: break-word;
       }
       .empty {
         font-size: 11px;
-        font-weight: 700;
+        font-weight: 400;
         padding: 8px 0;
       }
       .actions {

@@ -23,7 +23,6 @@ import CampaignIcon from '@mui/icons-material/Campaign'
 import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
-import ImageIcon from '@mui/icons-material/Image'
 import type { Announcement, AnnouncementType, CreateAnnouncementDto } from '@/types/announcement.types'
 import { announcementsService } from '@/services/announcements.service'
 
@@ -464,12 +463,12 @@ export default function AnunciosPage() {
     const payload: CreateAnnouncementDto = {
       titulo: form.titulo.trim(),
       descripcion: form.descripcion.trim() || undefined,
-      imagen: form.imagen.trim() || undefined,
+      imagen: undefined,
       fechaInicio: form.fechaInicio,
       fechaFin: form.fechaFin,
       horaInicio: form.horaInicio || undefined,
       horaFin: form.horaFin || undefined,
-      prioridad,
+      prioridad: 10,
       activo: activo === 1,
       tipo,
     }
@@ -587,15 +586,6 @@ export default function AnunciosPage() {
                 variant="outlined"
                 sx={{ color: COLOR_TEXT, borderColor: 'rgba(212,175,55,0.45)' }}
               />
-              {announcement.imagen ? (
-                <Chip
-                  icon={<ImageIcon />}
-                  label="Con imagen"
-                  size="small"
-                  variant="outlined"
-                  sx={{ color: COLOR_TEXT, borderColor: 'rgba(212,175,55,0.45)' }}
-                />
-              ) : null}
             </Stack>
           </Stack>
         </CardContent>
@@ -762,13 +752,6 @@ export default function AnunciosPage() {
             />
 
             <TextField
-              label="Imagen (URL)"
-              value={form.imagen}
-              onChange={(event) => setForm((prev) => ({ ...prev, imagen: event.target.value }))}
-              fullWidth
-            />
-
-            <TextField
               label="Fecha inicio"
               type="date"
               value={form.fechaInicio}
@@ -807,13 +790,6 @@ export default function AnunciosPage() {
             </Stack>
 
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField
-                label="Prioridad"
-                type="number"
-                value={form.prioridad}
-                onChange={(event) => setForm((prev) => ({ ...prev, prioridad: event.target.value }))}
-                fullWidth
-              />
 
               <TextField
                 label="Activo"

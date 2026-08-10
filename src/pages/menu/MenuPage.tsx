@@ -527,7 +527,7 @@ export default function MenuPage() {
       nombre: productForm.nombre.trim(),
       descripcion: productForm.descripcion.trim(),
       precio: parsedPrice,
-      imagen: productForm.imagen.trim() || undefined,
+      imagen: undefined,
       categoryId: parsedCategoryId,
       disponible: productForm.disponible === 'true',
     }
@@ -1019,12 +1019,6 @@ export default function MenuPage() {
                   step: 1,
                 },
               }}
-            />
-            <TextField
-              label="Imagen (URL)"
-              value={productForm.imagen}
-              onChange={(event) => setProductForm((prev) => ({ ...prev, imagen: event.target.value }))}
-              fullWidth
             />
             <TextField
               label="Categoría"

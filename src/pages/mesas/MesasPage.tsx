@@ -1975,17 +1975,6 @@ export default function MesasPage() {
                           '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
                         }}
                       />
-                      <TextField
-                        label="Precio"
-                        type="number"
-                        value={linea.precioUnitario}
-                        onChange={(event) => updatePedidoLine(index, { precioUnitario: event.target.value })}
-                        sx={{
-                          width: { xs: '100%', sm: 140 },
-                          '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
-                          '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
-                        }}
-                      />
                     </Stack>
 
                     <TextField
@@ -2197,17 +2186,6 @@ export default function MesasPage() {
                 label="Cantidad"
                 value={detailForm.cantidad}
                 onChange={(event) => setDetailForm((current) => ({ ...current, cantidad: event.target.value }))}
-                type="number"
-                fullWidth
-                sx={{
-                  '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
-                  '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
-                }}
-              />
-              <TextField
-                label="Precio unitario"
-                value={detailForm.precioUnitario}
-                onChange={(event) => setDetailForm((current) => ({ ...current, precioUnitario: event.target.value }))}
                 type="number"
                 fullWidth
                 sx={{

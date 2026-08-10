@@ -654,8 +654,6 @@ export default function FacturacionModal({
   const [paymentScopeById, setPaymentScopeById] = useState<Record<number, number | null>>({})
 
   const [selectedAccountId, setSelectedAccountId] = useState('')
-  const [newAccountName, setNewAccountName] = useState('')
-  const [newAccountNumber, setNewAccountNumber] = useState('')
   const [splitSelectionByDetail, setSplitSelectionByDetail] = useState<Record<number, { checked: boolean; cantidad: string }>>({})
   const [detailMoveQty, setDetailMoveQty] = useState<Record<string, string>>({})
   const [detailMoveTarget, setDetailMoveTarget] = useState<Record<string, string>>({})
@@ -1308,24 +1306,13 @@ export default function FacturacionModal({
       return
     }
 
-    const parsedAccountNumber = Number(newAccountNumber)
-    const maxExistingNumber = accounts.reduce((max, account) => {
-      const value = Number(account.numeroCuenta ?? account.numero ?? 0)
-      return Number.isFinite(value) && value > max ? value : max
-    }, 0)
-    const accountNumber =
-      Number.isFinite(parsedAccountNumber) && parsedAccountNumber > 0
-        ? Math.trunc(parsedAccountNumber)
-        : maxExistingNumber + 1
-
     const items = buildSplitItemsFromSelection()
     if (items === null) {
       return
     }
 
-    const name = newAccountName.trim()
-    if (!name && items.length === 0) {
-      toast.error('Ingresa un nombre de cuenta o selecciona productos para dividir.')
+    if (items.length === 0) {
+      toast.error('Selecciona al menos un producto para dividir la cuenta.')
       return
     }
 
@@ -1333,8 +1320,6 @@ export default function FacturacionModal({
     try {
       const existingIds = new Set(accounts.map((account) => account.id))
       const createResponse = await pedidosService.createAccount(pedidoId, {
-        numeroCuenta: accountNumber,
-        nombre: name || undefined,
         activo: true,
       })
 
@@ -1345,14 +1330,7 @@ export default function FacturacionModal({
         setAccounts(refreshedAccounts)
 
         const byNewId = refreshedAccounts.find((account) => !existingIds.has(account.id))
-        const byNumber = refreshedAccounts.find(
-          (account) => Number(account.numeroCuenta ?? Number(account.numero ?? 0)) === accountNumber,
-        )
-        const byName = name
-          ? refreshedAccounts.find((account) => String(account.nombre ?? '').trim().toLowerCase() === name.toLowerCase())
-          : undefined
-
-        createdAccountId = byNewId?.id ?? byNumber?.id ?? byName?.id ?? null
+        createdAccountId = byNewId?.id ?? null
       }
 
       if (items.length > 0 && createdAccountId) {
@@ -1363,8 +1341,6 @@ export default function FacturacionModal({
         toast.error('Cuenta creada, pero no se pudo identificar su ID para asignar productos automáticamente.')
       }
 
-      setNewAccountName('')
-      setNewAccountNumber('')
       clearSplitSelection()
       toast.success(items.length > 0 ? 'Cuenta creada y productos divididos.' : 'Cuenta creada.')
       await reloadAccountsAndPayments()
@@ -1928,28 +1904,6 @@ export default function FacturacionModal({
                     ))}
                   </TextField>
 
-                  <TextField
-                    label="Número cuenta"
-                    type="number"
-                    value={newAccountNumber}
-                    onChange={(event) => setNewAccountNumber(event.target.value)}
-                    fullWidth
-                    sx={{
-                      '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
-                      '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
-                    }}
-                  />
-
-                  <TextField
-                    label="Nueva cuenta"
-                    value={newAccountName}
-                    onChange={(event) => setNewAccountName(event.target.value)}
-                    fullWidth
-                    sx={{
-                      '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
-                      '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
-                    }}
-                  />
 
                   <Button
                     variant="outlined"
