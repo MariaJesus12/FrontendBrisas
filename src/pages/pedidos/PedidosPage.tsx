@@ -258,6 +258,7 @@ function normalizePedidoDetailRecord(item: unknown): PedidoDetalle | null {
         ? { nombre: productoNombre }
         : undefined,
     cantidad: Number.isFinite(cantidad) ? cantidad : 0,
+    cantidadEnviadaCocina: Number(record.cantidadEnviadaCocina ?? record.cantidad_enviada_cocina ?? 0) || 0,
     precioUnitario: Number.isFinite(precioUnitario) ? precioUnitario : 0,
     observacion: typeof record.observacion === 'string' ? record.observacion : undefined,
     subtotal:
@@ -2167,6 +2168,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
             : selectedPedido?.tipo === 'LLEVAR'
               ? 'Pedido para llevar'
               : undefined,
+        esComandaAdicional: currentDetails.some((detail) => Number(detail.cantidadEnviadaCocina ?? 0) > 0),
         productos: kitchenLines,
       }, async () => {
         setSaving(true)

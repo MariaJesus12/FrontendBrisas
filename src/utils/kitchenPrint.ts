@@ -9,6 +9,7 @@ export interface KitchenTicketData {
   codigo?: string
   locationLabel?: string
   printedAt?: Date
+  esComandaAdicional?: boolean
   productos: KitchenTicketLine[]
 }
 
@@ -51,9 +52,10 @@ export function openKitchenPrintPreview(
           .join('')
       : '<div class="empty">No hay productos para imprimir.</div>'
 
-  const headingLabel = ticket.locationLabel?.trim()
+  const locationLabel = ticket.locationLabel?.trim()
     ? escapeHtml(ticket.locationLabel.trim().toUpperCase())
     : 'COCINA'
+  const headingLabel = ticket.esComandaAdicional ? `COMANDA ADICIONAL · ${locationLabel}` : locationLabel
 
   previewWindow.document.open()
   previewWindow.document.write(`<!doctype html>

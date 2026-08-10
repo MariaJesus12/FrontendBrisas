@@ -417,6 +417,7 @@ function normalizePedidoDetailRecord(item: unknown): PedidoDetalle {
         }
       : undefined,
     cantidad: Number(record.cantidad ?? record.qty ?? 0),
+    cantidadEnviadaCocina: Number(record.cantidadEnviadaCocina ?? record.cantidad_enviada_cocina ?? 0) || 0,
     precioUnitario: Number(record.precioUnitario ?? record.precio_unitario ?? record.price ?? 0),
     observacion:
       typeof record.observacion === 'string'
@@ -1233,6 +1234,7 @@ export default function MesasPage() {
         pedidoId,
         codigo: selectedPedido.codigo,
         locationLabel: selectedMesa?.numero ? `Mesa #${selectedMesa.numero}` : undefined,
+        esComandaAdicional: detailsForKitchen.some((detail) => Number(detail.cantidadEnviadaCocina ?? 0) > 0),
         productos: kitchenLines,
       }, async () => {
         setSaving(true)
