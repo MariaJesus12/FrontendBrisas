@@ -1803,12 +1803,14 @@ export default function FacturacionModal({
         <body>
           <div class="ticket">
             <div class="header">
-              <div class="restaurant">Brisas del Lago</div>
+              <div class="restaurant">Restaurante Brisas del Lago</div>
+              <div class="business-info">Ced: 155800045026</div>
+              <div class="business-info">San Luis, Tilarán, Guanacaste</div>
+              <div class="business-info">Tel: 26953363</div>
               <div class="subtitle">${escapeHtml(title)}</div>
             </div>
 
             <div class="meta-grid">
-              <div class="meta-item"><b>Ced</b>${printedDate}</div>
               <div class="meta-item"><b>Fecha</b>${printedDate}</div>
               <div class="meta-item"><b>Hora</b>${printedTime}</div>
               <div class="meta-item"><b>Número de pedido</b>#${pedido?.id ?? pedidoId ?? ''}</div>
