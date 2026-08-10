@@ -72,7 +72,9 @@ export function openKitchenPrintPreview(
         margin: 0 auto;
         padding: 0;
         width: 54mm;
-        font-family: Verdana, Geneva, sans-serif;
+        font-family: "Courier New", Courier, monospace;
+         font-size: 14px;
+        font-weight: 500;
         background: #fff;
         color: #000;
         -webkit-print-color-adjust: exact;
