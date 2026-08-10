@@ -1808,6 +1808,7 @@ export default function FacturacionModal({
             </div>
 
             <div class="meta-grid">
+              <div class="meta-item"><b>Ced</b>${printedDate}</div>
               <div class="meta-item"><b>Fecha</b>${printedDate}</div>
               <div class="meta-item"><b>Hora</b>${printedTime}</div>
               <div class="meta-item"><b>Número de pedido</b>#${pedido?.id ?? pedidoId ?? ''}</div>
