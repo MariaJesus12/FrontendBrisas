@@ -24,10 +24,15 @@ export interface KitchenPrintLinePayload {
 }
 
 export interface SendToKitchenPayload {
-  mesaNumero?: number
-  pedidoId?: number
-  codigo?: string
-  productos: KitchenPrintLinePayload[]
+  copias?: number
+  impresoraId?: number
+  impresora_id?: number
+}
+
+export interface SendToKitchenResponse {
+  message: string
+  pedido: Pedido
+  detallesEnviados: PedidoDetalle[]
 }
 
 function normalizeSplitItems(data: {
@@ -484,7 +489,7 @@ export const pedidosService = {
   create: (data: CreatePedidoDto) => api.post<Pedido>('/pedidos', data),
   update: (id: number, data: UpdatePedidoDto) => api.put<Pedido>(`/pedidos/${id}`, data),
   sendToKitchen: (id: number, payload?: SendToKitchenPayload) =>
-    api.post<Pedido>(`/pedidos/${id}/enviar-cocina`, payload),
+    api.post<SendToKitchenResponse>(`/pedidos/${id}/enviar-cocina`, payload),
   reprint: (id: number) => reprintPedidoWithFallback(id),
   bill: (id: number) => api.post<Pedido>(`/pedidos/${id}/facturar`),
   delete: (id: number) => api.delete(`/pedidos/${id}`),

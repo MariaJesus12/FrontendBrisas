@@ -30,7 +30,6 @@ import { toast } from 'react-toastify'
 import { useAuth } from '@/hooks/useAuth'
 import FacturacionModal from '@/components/facturacion/FacturacionModal'
 import { menuService } from '@/services/menu.service'
-import type { SendToKitchenPayload } from '@/services/pedidos.service'
 import { pedidosService } from '@/services/pedidos.service'
 import { reservacionesService } from '@/services/reservaciones.service'
 import { mesaSchema } from '@/schemas/mesa.schema'
@@ -1183,24 +1182,44 @@ export default function MesasPage() {
       toast.error('No se pudo abrir la ventana de impresión. Revisa el bloqueador de popups.')
       return
     }
+    let detailsForKitchen = currentPedidoDetails
     if (hasDraftPedidoLineData()) {
       const saved = await handleSavePedido()
       if (!saved) {
         printWindow.close()
         return
       }
+
+      try {
+        const detailsResponse = await pedidosService.getDetails(pedidoId)
+        detailsForKitchen = unwrapPedidoDetailsPayload(detailsResponse.data)
+      } catch (requestError) {
+        printWindow.close()
+        const backendMessage =
+          axios.isAxiosError(requestError) && requestError.response
+            ? extractBackendMessage(requestError.response.data)
+            : ''
+        toast.error(backendMessage || 'No fue posible actualizar los productos del pedido.')
+        return
+      }
+    }
+
+    const pendingKitchenDetails = detailsForKitchen
+      .map((detail) => {
+        const cantidadPendiente = Number(detail.cantidad) - Number(detail.cantidadEnviadaCocina ?? 0)
+        return cantidadPendiente > 0 ? { ...detail, cantidad: cantidadPendiente } : null
+      })
+      .filter((detail): detail is PedidoDetalle => detail !== null)
+
+    if (pendingKitchenDetails.length === 0) {
+      printWindow.close()
+      toast.info('No hay productos nuevos pendientes de enviar a cocina.')
+      return
     }
 
     setSaving(true)
     try {
-      const kitchenPayload: SendToKitchenPayload = {
-        pedidoId,
-        codigo: selectedPedido.codigo,
-        mesaNumero:
-          Number(selectedMesa?.numero ?? selectedPedido.mesa?.numero ?? 0) > 0
-            ? Number(selectedMesa?.numero ?? selectedPedido.mesa?.numero)
-            : undefined,
-        productos: currentPedidoDetails.map((detail) => ({
+      const kitchenLines = pendingKitchenDetails.map((detail) => ({
           producto:
             detail.producto?.nombre ??
             detail.productoNombre ??
@@ -1208,19 +1227,19 @@ export default function MesasPage() {
             `Producto #${detail.productoId}`,
           cantidad: Number(detail.cantidad ?? 0) > 0 ? Number(detail.cantidad) : 1,
           observacion: detail.observacion?.trim() || undefined,
-        })),
-      }
+        }))
 
       openKitchenPrintPreview(printWindow, {
         pedidoId,
         codigo: selectedPedido.codigo,
         locationLabel: selectedMesa?.numero ? `Mesa #${selectedMesa.numero}` : undefined,
-        productos: kitchenPayload.productos,
+        productos: kitchenLines,
       }, async () => {
         setSaving(true)
         try {
-          await pedidosService.sendToKitchen(pedidoId, kitchenPayload)
-          toast.success('Comanda enviada a cocina.')
+          const response = await pedidosService.sendToKitchen(pedidoId)
+          const enviados = response.data.detallesEnviados.length
+          toast.success(enviados === 1 ? 'Producto enviado a cocina.' : `${enviados} productos enviados a cocina.`)
           await Promise.all([loadMesaPedido(Number(selectedMesa?.id ?? selectedPedido.mesaId ?? 0)), loadMesas()])
           return { ok: true }
         } catch (requestError) {

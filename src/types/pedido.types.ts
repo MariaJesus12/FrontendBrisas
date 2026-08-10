@@ -12,6 +12,8 @@ export interface PedidoDetalle {
     precio?: number
   }
   cantidad: number
+  /** Unidades de este detalle que ya fueron enviadas a cocina. */
+  cantidadEnviadaCocina?: number
   precioUnitario: number
   observacion?: string
   subtotal?: number
