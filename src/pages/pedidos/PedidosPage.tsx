@@ -51,6 +51,7 @@ import type { Product } from '@/types/menu.types'
 import type { CreatedUser } from '@/types/usuario.types'
 import type {
   CreatePedidoDto,
+  CierreDiario,
   EstadoPedido,
   MetodoPago,
   Pedido,
@@ -75,6 +76,15 @@ const FALLBACK_PAYMENT_METHODS: MetodoPago[] = [
 
 const ORDER_STATES: EstadoPedido[] = ['BORRADOR', 'EN_PREPARACION', 'LISTO', 'FACTURADO', 'CANCELADO']
 const ORDER_TYPES: TipoPedido[] = ['MESA', 'LLEVAR']
+
+function getCostaRicaDate(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Costa_Rica',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+}
 
 interface PedidoFilterState {
   estado: string
@@ -993,6 +1003,10 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
   const [paymentMethods, setPaymentMethods] = useState<MetodoPago[]>(FALLBACK_PAYMENT_METHODS)
   const [reservadaByMesa, setReservadaByMesa] = useState<Record<number, boolean>>({})
   const [loading, setLoading] = useState(true)
+  const [cierreFecha, setCierreFecha] = useState(getCostaRicaDate)
+  const [cierreDiario, setCierreDiario] = useState<CierreDiario | null>(null)
+  const [loadingCierreDiario, setLoadingCierreDiario] = useState(false)
+  const [cierreDiarioError, setCierreDiarioError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [loadingDetails, setLoadingDetails] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1057,6 +1071,12 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
   useEffect(() => {
     void loadInitialData()
   }, [])
+
+  useEffect(() => {
+    if (!isTakeoutMode) {
+      void loadCierreDiario(getCostaRicaDate())
+    }
+  }, [isTakeoutMode])
 
   useEffect(() => {
     if (isTakeoutMode) {
@@ -1180,6 +1200,28 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
       toast.error(fallbackMessage)
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function loadCierreDiario(fecha: string) {
+    if (!fecha) {
+      return
+    }
+
+    setLoadingCierreDiario(true)
+    setCierreDiarioError(null)
+    try {
+      const response = await pedidosService.getCierreDiario(fecha)
+      setCierreDiario(response.data)
+    } catch (requestError) {
+      const backendMessage =
+        axios.isAxiosError(requestError) && requestError.response
+          ? extractBackendMessage(requestError.response.data)
+          : ''
+      setCierreDiario(null)
+      setCierreDiarioError(backendMessage || 'No fue posible cargar el cierre diario.')
+    } finally {
+      setLoadingCierreDiario(false)
     }
   }
 
@@ -2307,6 +2349,132 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
           </Card>
         ))}
       </Box>
+
+      {!isTakeoutMode ? (
+        <Paper
+          sx={{
+            p: 2.5,
+            mb: 3,
+            borderRadius: 3,
+            backgroundColor: 'rgba(10,10,10,0.72)',
+            border: '1px solid rgba(212,175,55,0.28)',
+            boxShadow: '0 12px 30px rgba(0,0,0,0.32)',
+          }}
+        >
+          <Stack spacing={2.5}>
+            <Stack
+              direction={{ xs: 'column', md: 'row' }}
+              spacing={2}
+              sx={{ alignItems: { md: 'center' }, justifyContent: 'space-between' }}
+            >
+              <Box>
+                <Typography variant="h6" sx={{ color: COLOR_GOLD, fontWeight: 800 }}>
+                  Cierre diario
+                </Typography>
+                <Typography variant="body2" sx={{ color: COLOR_MUTED, mt: 0.5 }}>
+                  Resumen de ventas y pagos registrados para la fecha seleccionada.
+                </Typography>
+              </Box>
+
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
+                <TextField
+                  label="Fecha del cierre"
+                  type="date"
+                  value={cierreFecha}
+                  onChange={(event) => setCierreFecha(event.target.value)}
+                  slotProps={{ inputLabel: { shrink: true } }}
+                  sx={{
+                    minWidth: { sm: 190 },
+                    '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                    '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                  }}
+                />
+                <Button
+                  variant="contained"
+                  disabled={!cierreFecha || loadingCierreDiario}
+                  onClick={() => void loadCierreDiario(cierreFecha)}
+                  sx={{ backgroundColor: COLOR_MAROON, '&:hover': { backgroundColor: '#a42535' } }}
+                >
+                  {loadingCierreDiario ? 'Consultando...' : 'Buscar cierre'}
+                </Button>
+              </Stack>
+            </Stack>
+
+            {cierreDiarioError ? <Alert severity="warning">{cierreDiarioError}</Alert> : null}
+
+            {loadingCierreDiario && !cierreDiario ? (
+              <Box sx={{ py: 3, display: 'flex', justifyContent: 'center' }}>
+                <CircularProgress size={28} sx={{ color: COLOR_GOLD }} />
+              </Box>
+            ) : cierreDiario ? (
+              <>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' },
+                    gap: 1.5,
+                  }}
+                >
+                  {[
+                    { label: 'Total general', value: formatCurrency(cierreDiario.resumen.totalVendido) },
+                    { label: 'Pagos registrados', value: cierreDiario.resumen.pagosCount },
+                    { label: 'Pedidos cobrados', value: cierreDiario.resumen.pedidosCount },
+                  ].map((item) => (
+                    <Box
+                      key={item.label}
+                      sx={{
+                        p: 1.75,
+                        borderRadius: 2,
+                        backgroundColor: 'rgba(212,175,55,0.08)',
+                        border: '1px solid rgba(212,175,55,0.2)',
+                      }}
+                    >
+                      <Typography variant="body2" sx={{ color: COLOR_MUTED }}>
+                        {item.label}
+                      </Typography>
+                      <Typography variant="h6" sx={{ color: COLOR_GOLD, fontWeight: 800, mt: 0.25 }}>
+                        {item.value}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+
+                <Box>
+                  <Typography sx={{ color: COLOR_TEXT, fontWeight: 700, mb: 1 }}>Por método de pago</Typography>
+                  {cierreDiario.porMetodoPago.length === 0 ? (
+                    <Typography variant="body2" sx={{ color: COLOR_MUTED }}>
+                      No hay pagos registrados para esta fecha.
+                    </Typography>
+                  ) : (
+                    <TableContainer>
+                      <Table size="small" sx={{ minWidth: 560 }}>
+                        <TableHead>
+                          <TableRow>
+                            <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Método</TableCell>
+                            <TableCell align="right" sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Total</TableCell>
+                            <TableCell align="right" sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Pagos</TableCell>
+                            <TableCell align="right" sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Pedidos</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {cierreDiario.porMetodoPago.map((metodo) => (
+                            <TableRow key={metodo.metodoPagoId}>
+                              <TableCell sx={{ color: COLOR_TEXT }}>{metodo.metodoPagoNombre}</TableCell>
+                              <TableCell align="right" sx={{ color: COLOR_TEXT }}>{formatCurrency(metodo.total)}</TableCell>
+                              <TableCell align="right" sx={{ color: COLOR_TEXT }}>{metodo.pagosCount}</TableCell>
+                              <TableCell align="right" sx={{ color: COLOR_TEXT }}>{metodo.pedidosCount}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  )}
+                </Box>
+              </>
+            ) : null}
+          </Stack>
+        </Paper>
+      ) : null}
 
       <Paper
         sx={{

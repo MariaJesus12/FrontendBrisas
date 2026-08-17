@@ -7,6 +7,7 @@ import type {
   CreatePagoPedidoDto,
   CreatePedidoDetalleDto,
   CreatePedidoDto,
+  CierreDiario,
   MetodoPago,
   MovePedidoAccountDetailDto,
   Pedido,
@@ -552,4 +553,6 @@ export const pedidosService = {
   deletePayment: (id: number, paymentId: number) =>
     api.delete(`/pedidos/${id}/payments/${paymentId}`),
   getPaymentMethods: () => api.get<MetodoPago[]>('/pedidos/payment-methods'),
+  getCierreDiario: (fecha?: string) =>
+    api.get<CierreDiario>('/pedidos/cierre-diario', { params: fecha ? { fecha } : undefined }),
 }

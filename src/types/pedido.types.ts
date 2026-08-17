@@ -2,6 +2,29 @@ export type TipoPedido = 'MESA' | 'LLEVAR' | string
 
 export type EstadoPedido = 'BORRADOR' | 'EN_PREPARACION' | 'LISTO' | 'FACTURADO' | 'CANCELADO' | string
 
+export interface CierreDiarioMetodoPago {
+  metodoPagoId: number
+  metodoPagoNombre: string
+  total: number
+  pagosCount: number
+  pedidosCount: number
+}
+
+export interface CierreDiario {
+  fecha: string
+  periodo: {
+    desde: string
+    hasta: string
+    zonaHoraria: string
+  }
+  resumen: {
+    totalVendido: number
+    pagosCount: number
+    pedidosCount: number
+  }
+  porMetodoPago: CierreDiarioMetodoPago[]
+}
+
 export interface PedidoDetalle {
   id: number
   productoId: number
