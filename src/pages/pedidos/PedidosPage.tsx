@@ -1074,7 +1074,9 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
 
   useEffect(() => {
     if (!isTakeoutMode) {
-      void loadCierreDiario(getCostaRicaDate())
+      // La API resuelve el día actual cuando no se envía el parámetro fecha.
+      // Así evitamos depender de la validación de fecha para la carga inicial.
+      void loadCierreDiario()
     }
   }, [isTakeoutMode])
 
@@ -1203,15 +1205,14 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
     }
   }
 
-  async function loadCierreDiario(fecha: string) {
-    if (!fecha) {
-      return
-    }
-
+  async function loadCierreDiario(fecha?: string) {
     setLoadingCierreDiario(true)
     setCierreDiarioError(null)
     try {
-      const response = await pedidosService.getCierreDiario(fecha)
+      const selectedDate = fecha?.trim()
+      const response = await pedidosService.getCierreDiario(
+        selectedDate && selectedDate !== getCostaRicaDate() ? selectedDate : undefined,
+      )
       setCierreDiario(response.data)
     } catch (requestError) {
       const backendMessage =
