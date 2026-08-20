@@ -2042,15 +2042,15 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                 background: #fff;
                 color: #111827;
                 font-family: Verdana, Geneva, sans-serif;
-                font-size: 10px;
+                font-size: 9px;
                 -webkit-print-color-adjust: exact;
                 print-color-adjust: exact;
               }
               body { padding: 1mm 0; }
               .ticket { padding: 0; }
               .header { text-align: center; margin-bottom: 5px; }
-              .restaurant { font-size: 16px; font-weight: 500; letter-spacing: 0.1px; }
-              .subtitle { font-size: 10px; font-weight: 400; color: #374151; margin-top: 1px; }
+              .restaurant { font-size: 15px; font-weight: 500; letter-spacing: 0.1px; }
+              .subtitle { font-size: 9px; font-weight: 400; color: #374151; margin-top: 1px; }
               .meta-grid {
                 display: grid;
                 grid-template-columns: 1fr;
@@ -2059,24 +2059,24 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                 padding: 3px 0;
                 border-top: 1px dashed #94a3b8;
                 border-bottom: 1px dashed #94a3b8;
-                font-size: 10px;
+                font-size: 9px;
               }
               .meta-item b { display: block; color: #374151; font-weight: 800; margin-bottom: 1px; }
               .items { margin-bottom: 5px; }
               .item-row { border-bottom: 1px dashed #cbd5e1; padding: 3px 0; }
-              .item-name { font-size: 11px; font-weight: 500; color: #111827; word-break: break-word; }
-              .item-note { font-size: 9px; font-weight: 400; color: #4b5563; margin-top: 1px; white-space: pre-wrap; word-break: break-word; }
+              .item-name { font-size: 10px; font-weight: 500; color: #111827; word-break: break-word; }
+              .item-note { font-size: 8px; font-weight: 400; color: #4b5563; margin-top: 1px; white-space: pre-wrap; word-break: break-word; }
               .item-meta {
                 display: grid;
                 grid-template-columns: repeat(3, minmax(0, 1fr));
                 gap: 3px;
                 margin-top: 2px;
-                font-size: 9px;
+                font-size: 8px;
                 font-weight: 700;
                 color: #1f2937;
               }
               .item-meta span:nth-child(2), .item-meta span:nth-child(3) { text-align: right; }
-              .section-title { font-size: 10px; font-weight: 900; color: #111827; margin: 5px 0 2px; text-transform: uppercase; }
+              .section-title { font-size: 9px; font-weight: 900; color: #111827; margin: 5px 0 2px; text-transform: uppercase; }
               .payments { margin-bottom: 5px; }
               .payment-row {
                 display: grid;
@@ -2084,12 +2084,12 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                 column-gap: 6px;
                 border-bottom: 1px dashed #cbd5e1;
                 padding: 3px 0;
-                font-size: 9px;
+                font-size: 8px;
                 font-weight: 700;
               }
               .payment-row span:first-child { min-width: 0; word-break: break-word; }
               .payment-row span:last-child { text-align: right; white-space: nowrap; }
-              .empty-row { border-bottom: 1px dashed #cbd5e1; padding: 3px 0; text-align: center; color: #6b7280; font-size: 9px; }
+              .empty-row { border-bottom: 1px dashed #cbd5e1; padding: 3px 0; text-align: center; color: #6b7280; font-size: 8px; }
               .totals { border-top: 1px dashed #94a3b8; padding-top: 3px; margin-top: 1px; }
               .totals div {
                 display: grid;
@@ -2097,7 +2097,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                 align-items: start;
                 column-gap: 5px;
                 margin: 3px 0;
-                font-size: 10px;
+                font-size: 9px;
                 font-weight: 700;
                 line-height: 1.25;
               }
@@ -2109,7 +2109,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                 text-align: right;
                 white-space: nowrap;
               }
-              .total { font-weight: 500; font-size: 12px; color: #111827; }
+              .total { font-weight: 500; font-size: 11px; color: #111827; }
             </style>
           </head>
           <body>
