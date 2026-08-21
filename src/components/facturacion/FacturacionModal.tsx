@@ -27,6 +27,7 @@ import { monedasService, type Moneda } from '@/services/monedas.service'
 import { pedidosService } from '@/services/pedidos.service'
 import { tipoCambioService, type TipoCambio } from '@/services/tipo-cambio.service'
 import type { MetodoPago, PagoPedido, Pedido, PedidoAccount, PedidoAccountDetail, PedidoDetalle } from '@/types/pedido.types'
+import { printBillingTicket } from '@/utils/billingTicketPrint'
 
 interface FacturacionModalProps {
   open: boolean
@@ -94,14 +95,6 @@ function extractBackendMessage(payload: unknown): string {
   return ''
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/\"/g, '&quot;')
-    .replace(/'/g, '&#039;')
-}
 
 function formatCRC(value: number): string {
   return new Intl.NumberFormat('es-CR', {
@@ -1604,34 +1597,30 @@ export default function FacturacionModal({
 
   function handlePrintScope(accountId: number | null, title: string) {
     const scopeAmounts = getScopeAmounts(accountId)
-    const now = new Date()
 
     const account = accountId ? accounts.find((item) => item.id === accountId) : null
     const accountDetails = account?.detalles ?? []
 
-    const lines = accountId
+    const items = accountId
       ? accountDetails.map((detail) => {
           const detailId = detail.detailId ?? detail.pedidoDetalleId
           const source = detailId ? detailsById.get(detailId) : null
-          const label = source?.producto?.nombre ?? source?.productoNombre ?? detail.productoNombre ?? 'Producto'
-          const quantity = Number(detail.cantidad ?? source?.cantidad ?? 0)
-          const unitPrice = Number(detail.precioUnitario ?? source?.precioUnitario ?? 0)
-          const amount = Number(detail.subtotal ?? source?.subtotal ?? quantity * Number(detail.precioUnitario ?? source?.precioUnitario ?? 0))
+          const descripcion = source?.producto?.nombre ?? source?.productoNombre ?? detail.productoNombre ?? 'Producto'
+          const cantidad = Number(detail.cantidad ?? source?.cantidad ?? 0)
+          const amount = Number(detail.subtotal ?? source?.subtotal ?? cantidad * Number(detail.precioUnitario ?? source?.precioUnitario ?? 0))
 
           return {
-            label,
-            quantity,
-            unitPrice,
-            amount: Number.isFinite(amount) ? amount : 0,
-            observation: source?.observacion?.trim() || undefined,
+            descripcion,
+            cantidad,
+            precio: Number.isFinite(amount) ? amount : 0,
+            observacion: source?.observacion?.trim() || undefined,
           }
         })
       : unassignedDetails.map((detail) => ({
-          label: detail.label,
-          quantity: Number(detail.cantidad ?? 0),
-          unitPrice: Number(detail.cantidad ?? 0) > 0 ? Number(detail.subtotal ?? 0) / Number(detail.cantidad ?? 1) : 0,
-          amount: Number(detail.subtotal ?? 0),
-          observation: undefined,
+          descripcion: detail.label,
+          cantidad: Number(detail.cantidad ?? 0),
+          precio: Number(detail.subtotal ?? 0),
+          observacion: undefined,
         }))
 
     const scopePayments = payments.filter((payment) => {
@@ -1641,12 +1630,9 @@ export default function FacturacionModal({
         if (paymentAccountId === accountId) {
           return true
         }
-
-        // Some APIs omit accountId even when the payment belongs to the only split account.
         return paymentAccountId === null && accounts.length === 1 && accounts[0]?.id === accountId
       }
 
-      // Main account (non-split): include all payments from the order.
       if (accounts.length === 0) {
         return true
       }
@@ -1654,20 +1640,17 @@ export default function FacturacionModal({
       return paymentAccountId === null
     })
 
-    const paymentsHtml =
-      scopePayments.length > 0
-        ? scopePayments
-            .map((payment) => {
-              const methodName =
-                payment.metodoPago?.nombre ??
-                methods.find((method) => method.id === payment.metodoPagoId)?.nombre ??
-                `Método #${payment.metodoPagoId}`
-
-              const amount = Number(payment.montoColones ?? payment.monto ?? 0)
-              return `<div class="payment-row"><span>${escapeHtml(methodName)}</span><span>${formatCRC(Number.isFinite(amount) ? amount : 0)}</span></div>`
-            })
-            .join('')
-        : '<div class="empty-row">Sin pagos registrados</div>'
+    const formattedPayments = scopePayments.map((payment) => {
+      const methodName =
+        payment.metodoPago?.nombre ??
+        methods.find((method) => method.id === payment.metodoPagoId)?.nombre ??
+        `Método #${payment.metodoPagoId}`
+      const amount = Number(payment.montoColones ?? payment.monto ?? 0)
+      return {
+        metodo: methodName,
+        monto: Number.isFinite(amount) ? amount : 0,
+      }
+    })
 
     const totalPagado = scopePayments.reduce((sum, payment) => {
       const amount = Number(payment.montoColones ?? payment.monto ?? 0)
@@ -1677,40 +1660,8 @@ export default function FacturacionModal({
     const totalVuelto = scopePayments.reduce((sum, payment) => sum + resolvePaymentChangeCRC(payment), 0)
 
     const hasUsdPayments = scopePayments.some((payment) => resolvePaymentCurrency(payment) === 'USD')
-    const hasCrcPayments = scopePayments.some((payment) => resolvePaymentCurrency(payment) === 'CRC')
     const totalPagadoUSD = scopePayments.reduce((sum, payment) => sum + resolvePaymentAmountInCurrency(payment, 'USD'), 0)
     const totalVueltoUSD = scopePayments.reduce((sum, payment) => sum + resolvePaymentChangeInCurrency(payment, 'USD'), 0)
-
-    const paymentTotalsHtml = hasUsdPayments
-      ? [
-          hasCrcPayments && totalPagado > 0
-            ? `<div><span>Total pagado CRC</span><span>${formatCRC(totalPagado)}</span></div>`
-            : '',
-          `<div><span>Total pagado USD</span><span>${formatUSD(totalPagadoUSD)}</span></div>`,
-          totalVuelto > 0 ? `<div><span>Vuelto CRC</span><span>${formatCRC(totalVuelto)}</span></div>` : '',
-          totalVueltoUSD > 0 ? `<div><span>Vuelto USD</span><span>${formatUSD(totalVueltoUSD)}</span></div>` : '',
-        ]
-          .filter(Boolean)
-          .join('')
-      : [
-          `<div><span>Total pagado</span><span>${formatCRC(totalPagado)}</span></div>`,
-          totalVuelto > 0 ? `<div><span>Vuelto</span><span>${formatCRC(totalVuelto)}</span></div>` : '',
-        ]
-          .filter(Boolean)
-          .join('')
-
-    const rowsHtml =
-      lines.length > 0
-        ? lines
-            .map((line) => {
-              const note = line.observation ? `<div class="item-note">Obs: ${escapeHtml(line.observation)}</div>` : ''
-              return `<div class="item-row"><div class="item-name">${escapeHtml(line.label)}</div>${note}<div class="item-meta"><span>Cant: ${line.quantity > 0 ? line.quantity : '-'}</span><span>PU: ${formatCRC(Number.isFinite(line.unitPrice) ? line.unitPrice : 0)}</span><span>Subt: ${formatCRC(line.amount)}</span></div></div>`
-            })
-            .join('')
-        : '<div class="empty-row">Sin productos</div>'
-
-    const printedDate = now.toLocaleDateString('es-CR')
-    const printedTime = now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' })
 
     const popup = window.open('', '_blank', 'width=420,height=700')
     if (!popup) {
@@ -1718,130 +1669,25 @@ export default function FacturacionModal({
       return
     }
 
-    const html = `
-      <html>
-        <head>
-          <title>${escapeHtml(title)} - Pedido #${pedido?.id ?? pedidoId ?? ''}</title>
-          <style>
-            @page { margin: 1.5mm; size: 58mm auto; }
-            html, body {
-              margin: 0 auto;
-              padding: 0;
-              width: 52mm;
-              background: #fff;
-              color: #111827;
-              font-family: Arial, Helvetica, sans-serif;
-              font-size: 9px;
-              -webkit-print-color-adjust: exact;
-              print-color-adjust: exact;
-            }
-            body { padding: 1mm 0; }
-            .ticket { padding: 0; }
-            .header { text-align: center; margin-bottom: 5px; }
-            .restaurant { font-size: 15px; font-weight: 900; letter-spacing: 0.1px; }
-            .subtitle { font-size: 9px; font-weight: 800; color: #374151; margin-top: 1px; }
-            .meta-grid {
-              display: grid;
-              grid-template-columns: 1fr;
-              gap: 2px;
-              margin: 5px 0;
-              padding: 3px 0;
-              border-top: 1px dashed #94a3b8;
-              border-bottom: 1px dashed #94a3b8;
-              font-size: 9px;
-            }
-            .meta-item b { display: block; color: #374151; font-weight: 800; margin-bottom: 1px; }
-            .items { margin-bottom: 5px; }
-            .item-row { border-bottom: 1px dashed #cbd5e1; padding: 3px 0; }
-            .item-name { font-size: 10px; font-weight: 800; color: #111827; word-break: break-word; }
-            .item-note { font-size: 8px; font-weight: 700; color: #4b5563; margin-top: 1px; white-space: pre-wrap; word-break: break-word; }
-            .item-meta {
-              display: grid;
-              grid-template-columns: repeat(3, minmax(0, 1fr));
-              gap: 3px;
-              margin-top: 2px;
-              font-size: 8px;
-              font-weight: 700;
-              color: #1f2937;
-            }
-            .item-meta span:nth-child(2), .item-meta span:nth-child(3) { text-align: right; }
-            .section-title { font-size: 9px; font-weight: 900; color: #111827; margin: 5px 0 2px; text-transform: uppercase; }
-            .payments { margin-bottom: 5px; }
-            .payment-row {
-              display: grid;
-              grid-template-columns: minmax(0, 1fr) auto;
-              column-gap: 6px;
-              border-bottom: 1px dashed #cbd5e1;
-              padding: 3px 0;
-              font-size: 8px;
-              font-weight: 700;
-            }
-            .payment-row span:first-child { min-width: 0; word-break: break-word; }
-            .payment-row span:last-child { text-align: right; white-space: nowrap; }
-            .empty-row { border-bottom: 1px dashed #cbd5e1; padding: 3px 0; text-align: center; color: #6b7280; font-size: 8px; }
-            .totals { border-top: 1px dashed #94a3b8; padding-top: 3px; margin-top: 1px; }
-            .totals div {
-              display: grid;
-              grid-template-columns: minmax(0, 1fr) auto;
-              align-items: start;
-              column-gap: 5px;
-              margin: 3px 0;
-              font-size: 9px;
-              font-weight: 700;
-              line-height: 1.25;
-            }
-            .totals div span:first-child {
-              min-width: 0;
-              word-break: break-word;
-            }
-            .totals div span:last-child {
-              text-align: right;
-              white-space: nowrap;
-            }
-            .total { font-weight: 900; font-size: 11px; color: #111827; }
-          </style>
-        </head>
-        <body>
-          <div class="ticket">
-            <div class="header">
-              <div class="restaurant">Restaurante Brisas del Lago</div>
-              <div class="business-info">Ced: 155800045026</div>
-              <div class="business-info">San Luis, Tilarán, Guanacaste</div>
-              <div class="business-info">Tel: 26953363</div>
-              <div class="subtitle">${escapeHtml(title)}</div>
-            </div>
-
-            <div class="meta-grid">
-              <div class="meta-item"><b>Fecha</b>${printedDate}</div>
-              <div class="meta-item"><b>Hora</b>${printedTime}</div>
-              <div class="meta-item"><b>Número de pedido</b>#${pedido?.id ?? pedidoId ?? ''}</div>
-              <div class="meta-item"><b>Código</b>${escapeHtml(pedido?.codigo ?? '-')}</div>
-            </div>
-
-            <div class="items">${rowsHtml}</div>
-
-            <div class="totals">
-              <div><span>Subtotal</span><span>${formatCRC(scopeAmounts.subtotal)}</span></div>
-              ${scopeAmounts.serviceAmount > 0 ? `<div><span>Impuesto por servicio</span><span>${formatCRC(scopeAmounts.serviceAmount)}</span></div>` : ''}
-              <div class="total"><span>Total</span><span>${formatCRC(scopeAmounts.totalCRC)}</span></div>
-            </div>
-
-            <div class="section-title">Pagos</div>
-            <div class="payments">${paymentsHtml}</div>
-
-            <div class="totals">
-              ${paymentTotalsHtml}
-            </div>
-          </div>
-        </body>
-      </html>
-    `
-
-    popup.document.open()
-    popup.document.write(html)
-    popup.document.close()
-    popup.focus()
-    popup.print()
+    printBillingTicket(popup, {
+      title,
+      pedidoId: pedido?.id ?? pedidoId ?? undefined,
+      codigoFactura: pedido?.codigo ?? undefined,
+      cedula: '1-5580010047',
+      direccion: 'San Luis, Tilarán, Guanacaste',
+      telefono: '26953363',
+      items,
+      subtotal: scopeAmounts.subtotal,
+      servicioMonto: scopeAmounts.serviceAmount,
+      descuentoMonto: 0,
+      total: scopeAmounts.totalCRC,
+      pagos: formattedPayments,
+      totalPagado,
+      vuelto: totalVuelto,
+      hasUsdPayments,
+      totalPagadoUSD,
+      vueltoUSD: totalVueltoUSD,
+    })
   }
 
   return (

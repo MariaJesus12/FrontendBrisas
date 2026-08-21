@@ -61,6 +61,7 @@ import type {
   TipoPedido,
 } from '@/types/pedido.types'
 import { openKitchenPrintPreview } from '@/utils/kitchenPrint'
+import { printBillingTicket } from '@/utils/billingTicketPrint'
 import { normalizeRole } from '@/utils/roles'
 
 const COLOR_GOLD = '#D4AF37'
@@ -388,15 +389,6 @@ function formatCurrency(value: number | null | undefined): string {
   }).format(safeValue)
 }
 
-function formatUSD(value: number | null | undefined): string {
-  const safeValue = Number.isFinite(Number(value)) ? Number(value) : 0
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(safeValue)
-}
 
 function normalizeCurrencyCode(value: unknown): string {
   const normalized = String(value ?? '')
@@ -494,14 +486,6 @@ function formatDateTime(value?: string): string {
   })
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/\"/g, '&quot;')
-    .replace(/'/g, '&#039;')
-}
 
 function extractBackendMessage(payload: unknown): string {
   if (typeof payload === 'string') {
@@ -1932,37 +1916,34 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
 
     setSaving(true)
     try {
-      const [pedidoResponse, detailsResponse, paymentsResponse, methodsResponse] = await Promise.all([
+      const [pedidoResponse, detailsResponse, paymentsResponse] = await Promise.all([
         pedidosService.getById(pedidoId),
         pedidosService.getDetails(pedidoId),
         pedidosService.getPayments(pedidoId),
-        pedidosService.getPaymentMethods(),
       ])
 
       const printablePedido = normalizePedidoRecord(pedidoResponse.data) ?? pedido
       const printableDetails = unwrapPedidoDetailsPayload(detailsResponse.data)
       const printablePayments = unwrapPagosPayload(paymentsResponse.data)
-      const paymentMethods = unwrapArrayPayload<MetodoPago>(methodsResponse.data)
-      const now = new Date()
 
-      const rowsHtml =
-        printableDetails.length > 0
-          ? printableDetails
-              .map((detail) => {
-                const productLabel =
-                  detail.producto?.nombre ??
-                  detail.productoNombre ??
-                  products.find((product) => product.id === detail.productoId)?.nombre ??
-                  'Producto'
-                const quantity = Number(detail.cantidad ?? 0)
-                const unitPrice = Number(detail.precioUnitario ?? 0)
-                const subtotal = Number(detail.subtotal ?? unitPrice * quantity)
-                const note = detail.observacion?.trim() ? `<div class="item-note">Obs: ${escapeHtml(detail.observacion.trim())}</div>` : ''
 
-                return `<div class="item-row"><div class="item-name">${escapeHtml(productLabel)}</div>${note}<div class="item-meta"><span>Cant: ${quantity > 0 ? quantity : '-'}</span><span>PU: ${formatCurrency(Number.isFinite(unitPrice) ? unitPrice : 0)}</span><span>Subt: ${formatCurrency(Number.isFinite(subtotal) ? subtotal : 0)}</span></div></div>`
-              })
-              .join('')
-          : '<div class="empty-row">Sin productos</div>'
+      const items = printableDetails.map((detail) => {
+        const productLabel =
+          detail.producto?.nombre ??
+          detail.productoNombre ??
+          products.find((product) => product.id === detail.productoId)?.nombre ??
+          'Producto'
+        const quantity = Number(detail.cantidad ?? 0)
+        const unitPrice = Number(detail.precioUnitario ?? 0)
+        const subtotal = Number(detail.subtotal ?? unitPrice * quantity)
+
+        return {
+          descripcion: productLabel,
+          cantidad: quantity > 0 ? quantity : 1,
+          precio: Number.isFinite(subtotal) ? subtotal : 0,
+          observacion: detail.observacion?.trim() || undefined,
+        }
+      })
 
       const subtotal = printableDetails.reduce((sum, detail) => {
         const amount = Number(detail.subtotal ?? Number(detail.precioUnitario ?? 0) * Number(detail.cantidad ?? 0))
@@ -1976,19 +1957,17 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
         ? Number(printablePedido.total)
         : totalComputed
 
-      const paymentsHtml =
-        printablePayments.length > 0
-          ? printablePayments
-              .map((payment) => {
-                const methodName =
-                  payment.metodoPago?.nombre ??
-                  paymentMethods.find((method) => method.id === payment.metodoPagoId)?.nombre ??
-                  `Método #${payment.metodoPagoId}`
+      const formattedPayments = printablePayments.map((payment) => {
+        const methodName =
+          payment.metodoPago?.nombre ??
+          paymentMethods.find((method) => method.id === payment.metodoPagoId)?.nombre ??
+          `Método #${payment.metodoPagoId}`
 
-                return `<div class="payment-row"><span>${escapeHtml(methodName)}</span><span>${formatCurrency(Number(payment.montoColones ?? payment.monto ?? 0))}</span></div>`
-              })
-              .join('')
-          : '<div class="empty-row">Sin pagos registrados</div>'
+        return {
+          metodo: methodName,
+          monto: Number(payment.montoColones ?? payment.monto ?? 0),
+        }
+      })
 
       const totalPagado = printablePayments.reduce((sum, payment) => {
         const monto = Number(payment.montoColones ?? payment.monto ?? 0)
@@ -1998,30 +1977,8 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
       const totalVuelto = printablePayments.reduce((sum, payment) => sum + resolvePaymentChangeCRC(payment), 0)
 
       const hasUsdPayments = printablePayments.some((payment) => resolvePaymentCurrency(payment) === 'USD')
-      const hasCrcPayments = printablePayments.some((payment) => resolvePaymentCurrency(payment) === 'CRC')
       const totalPagadoUSD = printablePayments.reduce((sum, payment) => sum + resolvePaymentAmountInCurrency(payment, 'USD'), 0)
       const totalVueltoUSD = printablePayments.reduce((sum, payment) => sum + resolvePaymentChangeInCurrency(payment, 'USD'), 0)
-
-      const paymentTotalsHtml = hasUsdPayments
-        ? [
-            hasCrcPayments && totalPagado > 0
-              ? `<div><span>Total pagado CRC</span><span>${formatCurrency(totalPagado)}</span></div>`
-              : '',
-            `<div><span>Total pagado USD</span><span>${formatUSD(totalPagadoUSD)}</span></div>`,
-            totalVuelto > 0 ? `<div><span>Vuelto CRC</span><span>${formatCurrency(totalVuelto)}</span></div>` : '',
-            totalVueltoUSD > 0 ? `<div><span>Vuelto USD</span><span>${formatUSD(totalVueltoUSD)}</span></div>` : '',
-          ]
-            .filter(Boolean)
-            .join('')
-        : [
-            `<div><span>Total pagado</span><span>${formatCurrency(totalPagado)}</span></div>`,
-            totalVuelto > 0 ? `<div><span>Vuelto</span><span>${formatCurrency(totalVuelto)}</span></div>` : '',
-          ]
-            .filter(Boolean)
-            .join('')
-
-      const printedDate = now.toLocaleDateString('es-CR')
-      const printedTime = now.toLocaleTimeString('es-CR', { hour: '2-digit', minute: '2-digit' })
 
       const popup = window.open('', '_blank', 'width=420,height=700')
       if (!popup) {
@@ -2029,127 +1986,25 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
         return
       }
 
-      const html = `
-        <html>
-          <head>
-            <title>Reimpresión - Pedido #${printablePedido.id}</title>
-            <style>
-              @page { margin: 1.5mm; size: 58mm auto; }
-              html, body {
-                margin: 0 auto;
-                padding: 0;
-                width: 52mm;
-                background: #fff;
-                color: #111827;
-                font-family: Verdana, Geneva, sans-serif;
-                font-size: 9px;
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
-              }
-              body { padding: 1mm 0; }
-              .ticket { padding: 0; }
-              .header { text-align: center; margin-bottom: 5px; }
-              .restaurant { font-size: 15px; font-weight: 500; letter-spacing: 0.1px; }
-              .subtitle { font-size: 9px; font-weight: 400; color: #374151; margin-top: 1px; }
-              .meta-grid {
-                display: grid;
-                grid-template-columns: 1fr;
-                gap: 2px;
-                margin: 5px 0;
-                padding: 3px 0;
-                border-top: 1px dashed #94a3b8;
-                border-bottom: 1px dashed #94a3b8;
-                font-size: 9px;
-              }
-              .meta-item b { display: block; color: #374151; font-weight: 800; margin-bottom: 1px; }
-              .items { margin-bottom: 5px; }
-              .item-row { border-bottom: 1px dashed #cbd5e1; padding: 3px 0; }
-              .item-name { font-size: 10px; font-weight: 500; color: #111827; word-break: break-word; }
-              .item-note { font-size: 8px; font-weight: 400; color: #4b5563; margin-top: 1px; white-space: pre-wrap; word-break: break-word; }
-              .item-meta {
-                display: grid;
-                grid-template-columns: repeat(3, minmax(0, 1fr));
-                gap: 3px;
-                margin-top: 2px;
-                font-size: 8px;
-                font-weight: 700;
-                color: #1f2937;
-              }
-              .item-meta span:nth-child(2), .item-meta span:nth-child(3) { text-align: right; }
-              .section-title { font-size: 9px; font-weight: 900; color: #111827; margin: 5px 0 2px; text-transform: uppercase; }
-              .payments { margin-bottom: 5px; }
-              .payment-row {
-                display: grid;
-                grid-template-columns: minmax(0, 1fr) auto;
-                column-gap: 6px;
-                border-bottom: 1px dashed #cbd5e1;
-                padding: 3px 0;
-                font-size: 8px;
-                font-weight: 700;
-              }
-              .payment-row span:first-child { min-width: 0; word-break: break-word; }
-              .payment-row span:last-child { text-align: right; white-space: nowrap; }
-              .empty-row { border-bottom: 1px dashed #cbd5e1; padding: 3px 0; text-align: center; color: #6b7280; font-size: 8px; }
-              .totals { border-top: 1px dashed #94a3b8; padding-top: 3px; margin-top: 1px; }
-              .totals div {
-                display: grid;
-                grid-template-columns: minmax(0, 1fr) auto;
-                align-items: start;
-                column-gap: 5px;
-                margin: 3px 0;
-                font-size: 9px;
-                font-weight: 700;
-                line-height: 1.25;
-              }
-              .totals div span:first-child {
-                min-width: 0;
-                word-break: break-word;
-              }
-              .totals div span:last-child {
-                text-align: right;
-                white-space: nowrap;
-              }
-              .total { font-weight: 500; font-size: 11px; color: #111827; }
-            </style>
-          </head>
-          <body>
-            <div class="ticket">
-              <div class="header">
-                <div class="restaurant">Brisas del Lago</div>
-                <div class="subtitle">Factura de pedido</div>
-              </div>
-
-              <div class="meta-grid">
-                <div class="meta-item"><b>Fecha</b>${printedDate}</div>
-                <div class="meta-item"><b>Hora</b>${printedTime}</div>
-                <div class="meta-item"><b>Número de pedido</b>#${printablePedido.id}</div>
-                <div class="meta-item"><b>Código</b>${escapeHtml(printablePedido.codigo ?? '-')}</div>
-              </div>
-
-              <div class="items">${rowsHtml}</div>
-
-              <div class="totals">
-                <div><span>Subtotal</span><span>${formatCurrency(subtotal)}</span></div>
-                ${serviceAmount > 0 ? `<div><span>Impuesto por servicio</span><span>${formatCurrency(serviceAmount)}</span></div>` : ''}
-                <div class="total"><span>Total</span><span>${formatCurrency(total)}</span></div>
-              </div>
-
-              <div class="section-title">Pagos</div>
-              <div class="payments">${paymentsHtml}</div>
-
-              <div class="totals">
-                ${paymentTotalsHtml}
-              </div>
-            </div>
-          </body>
-        </html>
-      `
-
-      popup.document.open()
-      popup.document.write(html)
-      popup.document.close()
-      popup.focus()
-      popup.print()
+      printBillingTicket(popup, {
+        title: 'Reimpresión',
+        pedidoId: printablePedido.id,
+        codigoFactura: printablePedido.codigo ?? undefined,
+        cedula: '1-5580010047',
+        direccion: 'San Luis, Tilarán, Guanacaste',
+        telefono: '26953363',
+        items,
+        subtotal,
+        servicioMonto: serviceAmount,
+        descuentoMonto: 0,
+        total,
+        pagos: formattedPayments,
+        totalPagado,
+        vuelto: totalVuelto,
+        hasUsdPayments,
+        totalPagadoUSD,
+        vueltoUSD: totalVueltoUSD,
+      })
 
       toast.success('Reimpresión preparada correctamente.')
     } catch (requestError) {
