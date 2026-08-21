@@ -1200,7 +1200,7 @@ export default function FacturacionModal({
           {
             key: ORDER_SCOPE_KEY,
             accountId: null as number | null,
-            title: 'Cuenta principal (no asignado)',
+            title: 'Cuenta principal',
           },
         ]
 

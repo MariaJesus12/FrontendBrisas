@@ -64,6 +64,21 @@ export function formatTicketFechaHora(dateInput?: Date | string): string {
   return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`
 }
 
+function isDefaultScopeTitle(title?: string): boolean {
+  if (!title) {
+    return true
+  }
+  const lower = title.trim().toLowerCase()
+  return (
+    lower === 'cuenta completa' ||
+    lower === 'cuenta principal' ||
+    lower === 'cuenta principal (no asignado)' ||
+    lower.includes('no asignado') ||
+    lower === 'reimpresión' ||
+    lower === 'unassigned'
+  )
+}
+
 export function generateBillingTicketHtml(data: BillingTicketData): string {
   const formattedFechaHora = formatTicketFechaHora(data.fechaHora)
 
@@ -125,6 +140,8 @@ export function generateBillingTicketHtml(data: BillingTicketData): string {
     : data.pedidoId
       ? String(data.pedidoId)
       : '-'
+
+  const showScopeTitle = !isDefaultScopeTitle(data.title)
 
   return `<!doctype html>
 <html lang="es">
@@ -273,7 +290,7 @@ export function generateBillingTicketHtml(data: BillingTicketData): string {
         <div class="meta-info">Tel: ${escapeHtml(data.telefono || '26953363')}</div>
         <div class="meta-info">Fecha: ${formattedFechaHora}</div>
         <div class="meta-info">N° Factura: ${escapeHtml(invoiceNumber)}</div>
-        ${data.title && data.title !== 'Cuenta completa' ? `<div class="scope-title">${escapeHtml(data.title)}</div>` : ''}
+        ${showScopeTitle ? `<div class="scope-title">${escapeHtml(data.title ?? '')}</div>` : ''}
       </div>
 
       <div class="table-header">
@@ -301,7 +318,7 @@ export function generateBillingTicketHtml(data: BillingTicketData): string {
         ` : ''}
         <div class="total-row">
           <span>Descuento</span>
-          <span>:${formatTicketAmount(data.descuentoMonto ?? 0)}</span>
+          <span>${formatTicketAmount(data.descuentoMonto ?? 0)}</span>
         </div>
         <div class="total-row grand-total">
           <span>Total a Pagar</span>
