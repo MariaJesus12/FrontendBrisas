@@ -160,7 +160,7 @@ export function generateBillingTicketHtml(data: BillingTicketData): string {
         background: #fff;
         color: #000;
         font-family: Arial, Helvetica, sans-serif;
-        font-size: 9px;
+        font-size: 11px;
         line-height: 1.25;
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
@@ -177,32 +177,32 @@ export function generateBillingTicketHtml(data: BillingTicketData): string {
         margin-bottom: 6px;
       }
       .restaurant-name {
-        font-size: 13px;
+        font-size: 16px;
         font-weight: bold;
         color: #000;
-        margin-bottom: 1px;
+        margin-bottom: 2px;
       }
       .restaurant-sub {
-        font-size: 10px;
+        font-size: 12px;
         font-weight: normal;
         margin-bottom: 4px;
       }
       .meta-info {
-        font-size: 8.5px;
+        font-size: 10.5px;
         margin-bottom: 1px;
         color: #000;
       }
       .scope-title {
-        font-size: 9px;
+        font-size: 11px;
         font-weight: bold;
         margin-top: 3px;
         text-transform: uppercase;
       }
       .table-header {
         display: grid;
-        grid-template-columns: 24px 1fr auto;
+        grid-template-columns: 28px 1fr auto;
         column-gap: 4px;
-        font-size: 9.5px;
+        font-size: 12px;
         font-weight: bold;
         margin-top: 6px;
         margin-bottom: 4px;
@@ -213,10 +213,10 @@ export function generateBillingTicketHtml(data: BillingTicketData): string {
       }
       .product-row {
         display: grid;
-        grid-template-columns: 24px 1fr auto;
+        grid-template-columns: 28px 1fr auto;
         column-gap: 4px;
         padding: 2px 0;
-        font-size: 9.5px;
+        font-size: 12px;
         align-items: start;
       }
       .col-qty {
@@ -232,14 +232,14 @@ export function generateBillingTicketHtml(data: BillingTicketData): string {
       }
       .product-note {
         grid-column: 2 / span 2;
-        font-size: 8px;
+        font-size: 10px;
         color: #4b5563;
         margin-top: 1px;
       }
       .empty-row {
         text-align: center;
         color: #6b7280;
-        font-size: 8.5px;
+        font-size: 11px;
         padding: 4px 0;
       }
       .divider {
@@ -253,15 +253,15 @@ export function generateBillingTicketHtml(data: BillingTicketData): string {
         display: flex;
         justify-content: space-between;
         margin: 2px 0;
-        font-size: 9.5px;
+        font-size: 12px;
       }
       .total-row.grand-total {
         font-weight: bold;
-        font-size: 10.5px;
+        font-size: 13.5px;
         margin-top: 4px;
       }
       .section-title {
-        font-size: 9px;
+        font-size: 11px;
         font-weight: bold;
         margin: 6px 0 2px;
         text-transform: uppercase;
@@ -269,13 +269,13 @@ export function generateBillingTicketHtml(data: BillingTicketData): string {
       .payment-row {
         display: flex;
         justify-content: space-between;
-        font-size: 8.5px;
+        font-size: 11px;
         padding: 1px 0;
       }
       .footer {
         text-align: center;
         margin-top: 10px;
-        font-size: 9px;
+        font-size: 11px;
         line-height: 1.35;
       }
     </style>
