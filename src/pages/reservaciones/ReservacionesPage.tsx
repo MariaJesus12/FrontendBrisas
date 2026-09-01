@@ -398,18 +398,6 @@ function normalizeReservacionRecord(item: unknown): Reservacion | null {
           : typeof record.observacion === 'string'
             ? record.observacion
             : undefined,
-    bloqueDesde:
-      typeof record.bloqueDesde === 'string'
-        ? record.bloqueDesde
-        : typeof record.blockFrom === 'string'
-          ? record.blockFrom
-          : undefined,
-    bloqueHasta:
-      typeof record.bloqueHasta === 'string'
-        ? record.bloqueHasta
-        : typeof record.blockTo === 'string'
-          ? record.blockTo
-          : undefined,
     createdAt:
       typeof record.createdAt === 'string'
         ? record.createdAt
