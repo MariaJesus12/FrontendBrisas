@@ -1555,6 +1555,7 @@ export default function PublicMenuPage() {
                                   fontSize: '1.03rem',
                                   color: COLOR_TEXT_MUTED,
                                   lineHeight: 1.4,
+                                  whiteSpace: 'pre-line',
                                 }}
                               >
                                 {item.descripcion}
@@ -1692,6 +1693,7 @@ export default function PublicMenuPage() {
                                 fontSize: '1.03rem',
                                 opacity: 1,
                                 color: COLOR_TEXT_MUTED,
+                                whiteSpace: 'pre-line',
                               }}
                             >
                               {item.descripcion}
@@ -1743,6 +1745,7 @@ export default function PublicMenuPage() {
                                 fontSize: '1.03rem',
                                 opacity: 1,
                                 color: COLOR_TEXT_MUTED,
+                                whiteSpace: 'pre-line',
                               }}
                             >
                               {item.descripcion}

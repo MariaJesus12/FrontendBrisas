@@ -3101,9 +3101,13 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                             label="Observación"
                             value={line.observacion}
                             onChange={(event) => updatePedidoLine(index, { observacion: event.target.value })}
+                            multiline
+                            minRows={2}
+                            helperText="Usa una línea por término (ej. un salto de línea por cada preparación distinta)."
                             sx={{
                               '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
                               '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                              '& .MuiFormHelperText-root': { color: COLOR_MUTED },
                             }}
                           />
                         </Box>
@@ -3241,7 +3245,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                           <TableCell sx={{ color: COLOR_TEXT }}>
                             {formatCurrency(detail.subtotal ?? detail.precioUnitario * detail.cantidad)}
                           </TableCell>
-                          <TableCell sx={{ color: COLOR_MUTED }}>{detail.observacion || 'Sin observación'}</TableCell>
+                          <TableCell sx={{ color: COLOR_MUTED, whiteSpace: 'pre-line' }}>{detail.observacion || 'Sin observación'}</TableCell>
                           <TableCell align="right">
                             <Stack direction="row" spacing={0.5} sx={{ justifyContent: 'flex-end' }}>
                               <IconButton onClick={() => openEditDetailDialog(detail)} sx={{ color: COLOR_GOLD }}>

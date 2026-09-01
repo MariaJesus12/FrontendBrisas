@@ -1673,7 +1673,7 @@ export default function FacturacionModal({
       title,
       pedidoId: pedido?.id ?? pedidoId ?? undefined,
       codigoFactura: pedido?.codigo ?? undefined,
-      cedula: '1-5580010047',
+      cedula: '155800045026',
       direccion: 'San Luis, Tilarán, Guanacaste',
       telefono: '26953363',
       items,

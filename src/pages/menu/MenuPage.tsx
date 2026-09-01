@@ -738,7 +738,7 @@ export default function MenuPage() {
                   <Box>
                     <Typography sx={{ color: COLOR_GOLD, fontWeight: 600 }}>{category.nombre}</Typography>
                     {category.descripcion ? (
-                      <Typography sx={{ color: 'rgba(243,233,210,0.75)', fontSize: '0.9rem' }}>
+                      <Typography sx={{ color: 'rgba(243,233,210,0.75)', fontSize: '0.9rem', whiteSpace: 'pre-line' }}>
                         {category.descripcion}
                       </Typography>
                     ) : null}
@@ -846,7 +846,7 @@ export default function MenuPage() {
                                 </Stack>
                               </Stack>
 
-                              <Typography sx={{ color: 'rgba(243,233,210,0.82)' }}>
+                              <Typography sx={{ color: 'rgba(243,233,210,0.82)', whiteSpace: 'pre-line' }}>
                                 {product.descripcion}
                               </Typography>
 

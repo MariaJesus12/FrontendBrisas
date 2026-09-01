@@ -235,6 +235,8 @@ export function generateBillingTicketHtml(data: BillingTicketData): string {
         font-size: 10px;
         color: #4b5563;
         margin-top: 1px;
+        white-space: pre-wrap;
+        word-break: break-word;
       }
       .empty-row {
         text-align: center;
