@@ -2804,25 +2804,27 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                 </TextField>
               )}
 
-              <TextField
-                select
-                label="Estado"
-                value={pedidoForm.estado}
-                onChange={(event) =>
-                  setPedidoForm((current) => ({ ...current, estado: normalizeOrderState(event.target.value) }))
-                }
-                fullWidth
-                sx={{
-                  '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
-                  '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
-                }}
-              >
-                {ORDER_STATES.map((state) => (
-                  <MenuItem key={state} value={state}>
-                    {state}
-                  </MenuItem>
-                ))}
-              </TextField>
+              {isTakeoutMode && currentRole !== 'ADMIN' ? null : (
+                <TextField
+                  select
+                  label="Estado"
+                  value={pedidoForm.estado}
+                  onChange={(event) =>
+                    setPedidoForm((current) => ({ ...current, estado: normalizeOrderState(event.target.value) }))
+                  }
+                  fullWidth
+                  sx={{
+                    '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                    '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                  }}
+                >
+                  {ORDER_STATES.map((state) => (
+                    <MenuItem key={state} value={state}>
+                      {state}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              )}
 
               {(isTakeoutMode || pedidoForm.tipo === 'LLEVAR') ? (
                 <>
