@@ -2804,7 +2804,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                 </TextField>
               )}
 
-              {isTakeoutMode && currentRole !== 'ADMIN' ? null : (
+              {isTakeoutMode ? null : (
                 <TextField
                   select
                   label="Estado"
@@ -2920,7 +2920,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                 </TextField>
               )}
 
-              {pedidoForm.tipo === 'MESA' && !isTakeoutMode ? (
+              {isTakeoutMode ? null : pedidoForm.tipo === 'MESA' ? (
                 <TextField
                   select
                   label="Mesa"
