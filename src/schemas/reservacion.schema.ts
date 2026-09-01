@@ -1,7 +1,6 @@
 import { z } from 'zod'
 
 export const reservacionSchema = z.object({
-  mesaId: z.coerce.number().int().min(1, 'Selecciona una mesa.'),
   clienteNombre: z.string().trim().min(2, 'El nombre del cliente es requerido'),
   clienteTelefono: z.string().trim().min(7, 'Teléfono inválido'),
   fecha: z.string().min(1, 'La fecha es requerida'),

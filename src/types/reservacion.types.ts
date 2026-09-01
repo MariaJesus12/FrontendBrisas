@@ -16,8 +16,7 @@ export interface ReservaMesaEstado {
 
 export interface Reservacion {
   id: number
-  mesaId: number
-  clienteId: number
+  clienteId?: number
   usuarioId?: number
   nombreCliente?: string
   telefono?: string
@@ -28,15 +27,8 @@ export interface Reservacion {
   estado: EstadoReservacion
   observaciones?: string
   notas?: string
-  bloqueDesde?: string
-  bloqueHasta?: string
   createdAt?: string
   updatedAt?: string
-  mesa?: {
-    id?: number
-    numero?: number
-    capacidad?: number
-  }
   usuario?: {
     id?: number
     nombre?: string
@@ -47,7 +39,6 @@ export interface Reservacion {
 export interface ReservacionListQuery {
   fecha?: string
   estado?: string
-  mesaId?: number
   clienteId?: number
   usuarioId?: number
   fechaDesde?: string
@@ -60,12 +51,13 @@ export interface ReservasMesasEstadoQuery {
 }
 
 export interface CreateReservacionDto {
-  mesaId: number
-  clienteId: number
+  nombreCliente: string
+  telefono: string
   fechaHora: string
   cantidadPersonas: number
   observaciones?: string
   notas?: string
+  clienteId?: number | null
   estado?: string
 }
 

@@ -4,20 +4,16 @@ import {
   Alert,
   Box,
   Button,
-  Card,
-  CardContent,
   Chip,
   CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
-  FormControlLabel,
   IconButton,
   MenuItem,
   Paper,
   Stack,
-  Switch,
   Table,
   TableBody,
   TableCell,
@@ -28,15 +24,15 @@ import {
   Typography,
 } from '@mui/material'
 import EventSeatIcon from '@mui/icons-material/EventSeat'
+import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import RefreshIcon from '@mui/icons-material/Refresh'
-import AutorenewIcon from '@mui/icons-material/Autorenew'
 import { toast } from 'react-toastify'
 import { reservacionSchema } from '@/schemas/reservacion.schema'
 import { clientesService } from '@/services/clientes.service'
 import { reservacionesService } from '@/services/reservaciones.service'
 import type { Cliente } from '@/types/cliente.types'
-import type { CreateReservacionDto, Reservacion, ReservaMesaEstado } from '@/types/reservacion.types'
+import type { CreateReservacionDto, Reservacion } from '@/types/reservacion.types'
 
 const COLOR_GOLD = '#D4AF37'
 const COLOR_TEXT = '#F3E9D2'
@@ -45,7 +41,6 @@ const COLOR_MUTED = 'rgba(243,233,210,0.78)'
 
 interface ReservacionFormState {
   clienteId: string
-  mesaId: string
   clienteNombre: string
   clienteTelefono: string
   fecha: string
@@ -57,8 +52,6 @@ interface ReservacionFormState {
 
 const DEFAULT_ESTADOS = ['pendiente', 'confirmada', 'atendida', 'cancelada']
 
-const RESERVA_ESTADOS_OCUPADA = new Set(['PENDIENTE', 'CONFIRMADA', 'CONFIRMADO'])
-const RESERVA_ESTADOS_LIBRE = new Set(['ATENDIDA', 'CANCELADA'])
 const DATE_TIME_PARTS_PATTERN = /^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?/
 
 function toPositiveNumber(value: unknown): number | null {
@@ -95,10 +88,6 @@ function formatTimeInput(date: Date): string {
   return `${hours}:${minutes}`
 }
 
-function formatDateTimeInput(date: Date): string {
-  return `${formatDateInput(date)}T${formatTimeInput(date)}`
-}
-
 function extractDateTimeParts(value?: string): {
   year: number
   month: number
@@ -131,24 +120,6 @@ function extractDateTimeParts(value?: string): {
 
 function buildDateFromParts(parts: NonNullable<ReturnType<typeof extractDateTimeParts>>): Date {
   return new Date(parts.year, parts.month - 1, parts.day, parts.hours, parts.minutes, parts.seconds)
-}
-
-function buildAtParam(value: string): string | undefined {
-  const trimmed = String(value ?? '').trim()
-  if (!trimmed) {
-    return undefined
-  }
-
-  const parts = extractDateTimeParts(trimmed)
-  if (!parts) {
-    return trimmed
-  }
-
-  const hours = String(parts.hours).padStart(2, '0')
-  const minutes = String(parts.minutes).padStart(2, '0')
-  const seconds = String(parts.seconds).padStart(2, '0')
-
-  return `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}T${hours}:${minutes}:${seconds}`
 }
 
 function splitFechaHora(value?: string): { fecha: string; hora: string } {
@@ -213,23 +184,6 @@ function normalizeReservaEstado(value: unknown): string {
   return String(value ?? '').trim().toUpperCase()
 }
 
-function resolveMesaReservadaByEstado(estado: unknown): boolean | null {
-  const normalized = normalizeReservaEstado(estado)
-  if (!normalized) {
-    return null
-  }
-
-  if (RESERVA_ESTADOS_OCUPADA.has(normalized)) {
-    return true
-  }
-
-  if (RESERVA_ESTADOS_LIBRE.has(normalized)) {
-    return false
-  }
-
-  return null
-}
-
 function extractBackendMessage(payload: unknown): string {
   if (typeof payload === 'string') {
     return payload
@@ -278,10 +232,6 @@ function unwrapArrayPayload(payload: unknown): unknown[] {
     'customers',
     'reservas',
     'reservaciones',
-    'mesas',
-    'mesasEstado',
-    'estadoMesas',
-    'tables',
     'content',
     'rows',
     'list',
@@ -357,112 +307,12 @@ function unwrapSingleRecord(payload: unknown): unknown {
   return payload
 }
 
-function normalizeBoolean(value: unknown): boolean {
-  if (typeof value === 'boolean') {
-    return value
-  }
-
-  const normalized = String(value ?? '').trim().toLowerCase()
-  return normalized === 'true' || normalized === '1' || normalized === 'activo' || normalized === 'activa'
-}
-
-function normalizeMesaEstadoRecord(item: unknown): ReservaMesaEstado | null {
-  if (typeof item !== 'object' || item === null) {
-    return null
-  }
-
-  const record = item as Record<string, unknown>
-  const mesaRaw =
-    typeof record.mesa === 'object' && record.mesa !== null ? (record.mesa as Record<string, unknown>) : null
-
-  const mesaId =
-    toPositiveNumber(
-      record.mesaId ??
-        record.mesa_id ??
-        record.idMesa ??
-        record.id ??
-        record.tableId ??
-        record.table_id ??
-        mesaRaw?.id ??
-        mesaRaw?.mesaId,
-    ) ?? null
-  if (!mesaId) {
-    return null
-  }
-
-  const numero = Number(
-    record.numero ?? record.numeroMesa ?? record.mesaNumero ?? record.number ?? mesaRaw?.numero ?? mesaId,
-  )
-  const capacidad = Number(
-    record.capacidad ??
-      record.mesaCapacidad ??
-      record.capacity ??
-      record.asientos ??
-      mesaRaw?.capacidad ??
-      0,
-  )
-
-  const reservada =
-    normalizeBoolean(
-      record.reservada ??
-        record.reserved ??
-        record.ocupada ??
-        record.isReserved ??
-        record.estaReservada ??
-        record.disponible === false,
-    ) ||
-    toPositiveNumber(record.reservaId ?? record.reserva_id) !== null
-
-  const reservaEstadoValue =
-    typeof record.reservaEstado === 'string'
-      ? record.reservaEstado
-      : typeof record.estadoReserva === 'string'
-        ? record.estadoReserva
-        : typeof record.estado === 'string'
-          ? record.estado
-          : undefined
-
-  const reservadaByEstado = resolveMesaReservadaByEstado(reservaEstadoValue)
-
-  return {
-    mesaId,
-    numero: Number.isFinite(numero) ? numero : mesaId,
-    capacidad: Number.isFinite(capacidad) ? capacidad : 0,
-    activa: normalizeBoolean(record.activa ?? record.active ?? mesaRaw?.activa ?? mesaRaw?.active ?? true),
-    reservada: reservadaByEstado ?? reservada,
-    reservaId: toPositiveNumber(record.reservaId ?? record.reserva_id) ?? undefined,
-    reservaEstado:
-      typeof reservaEstadoValue === 'string' ? reservaEstadoValue : undefined,
-    cliente:
-      typeof record.cliente === 'string'
-        ? record.cliente
-        : typeof record.nombreCliente === 'string'
-          ? record.nombreCliente
-          : undefined,
-    at: typeof record.at === 'string' ? record.at : undefined,
-    bloqueDesde:
-      typeof record.bloqueDesde === 'string'
-        ? record.bloqueDesde
-        : typeof record.blockFrom === 'string'
-          ? record.blockFrom
-          : undefined,
-    bloqueHasta:
-      typeof record.bloqueHasta === 'string'
-        ? record.bloqueHasta
-        : typeof record.blockTo === 'string'
-          ? record.blockTo
-          : undefined,
-  }
-}
-
 function normalizeReservacionRecord(item: unknown): Reservacion | null {
   if (typeof item !== 'object' || item === null) {
     return null
   }
 
   const record = item as Record<string, unknown>
-  const mesaRaw =
-    typeof record.mesa === 'object' && record.mesa !== null ? (record.mesa as Record<string, unknown>) : null
   const usuarioRaw =
     typeof record.usuario === 'object' && record.usuario !== null
       ? (record.usuario as Record<string, unknown>)
@@ -475,8 +325,6 @@ function normalizeReservacionRecord(item: unknown): Reservacion | null {
     return null
   }
 
-  const mesaId =
-    toPositiveNumber(record.mesaId ?? record.mesa_id ?? record.idMesa ?? mesaRaw?.id ?? mesaRaw?.mesaId) ?? 0
   const fechaHoraRaw =
     record.fechaHora ?? record.fecha_hora ?? record.fechaReserva ?? record.fecha_reserva ?? record.fecha
   const horaRaw = record.hora
@@ -491,8 +339,7 @@ function normalizeReservacionRecord(item: unknown): Reservacion | null {
 
   return {
     id,
-    mesaId,
-    clienteId: toPositiveNumber(record.clienteId ?? record.cliente_id ?? record.idCliente) ?? 0,
+    clienteId: toPositiveNumber(record.clienteId ?? record.cliente_id ?? record.idCliente) ?? undefined,
     usuarioId: toPositiveNumber(record.usuarioId ?? record.usuario_id ?? record.idUsuario) ?? undefined,
     nombreCliente:
       typeof record.nombreCliente === 'string'
@@ -575,13 +422,6 @@ function normalizeReservacionRecord(item: unknown): Reservacion | null {
         : typeof record.updated_at === 'string'
           ? record.updated_at
           : undefined,
-    mesa: mesaRaw
-      ? {
-          id: toPositiveNumber(mesaRaw.id ?? mesaRaw.mesaId ?? mesaRaw.mesa_id) ?? undefined,
-          numero: Number(mesaRaw.numero ?? 0) || undefined,
-          capacidad: Number(mesaRaw.capacidad ?? 0) || undefined,
-        }
-      : undefined,
     usuario: usuarioRaw
       ? {
           id: toPositiveNumber(usuarioRaw.id ?? usuarioRaw.usuarioId ?? usuarioRaw.usuario_id) ?? undefined,
@@ -597,11 +437,10 @@ function normalizeReservacionRecord(item: unknown): Reservacion | null {
   }
 }
 
-function buildInitialForm(nextMesaId?: number): ReservacionFormState {
+function buildInitialForm(): ReservacionFormState {
   const now = new Date()
   return {
     clienteId: '',
-    mesaId: nextMesaId ? String(nextMesaId) : '',
     clienteNombre: '',
     clienteTelefono: '',
     fecha: formatDateInput(now),
@@ -613,25 +452,18 @@ function buildInitialForm(nextMesaId?: number): ReservacionFormState {
 }
 
 export default function ReservacionesPage() {
-  const [mesasEstado, setMesasEstado] = useState<ReservaMesaEstado[]>([])
   const [agendaReservas, setAgendaReservas] = useState<Reservacion[]>([])
   const [clientes, setClientes] = useState<Cliente[]>([])
-  const [viewAt, setViewAt] = useState<string>(formatDateTimeInput(new Date()))
-  const [includeInactive, setIncludeInactive] = useState<boolean>(false)
   const [agendaDate, setAgendaDate] = useState<string>('')
   const [agendaEstado, setAgendaEstado] = useState<string>('')
-  const [agendaMesaId, setAgendaMesaId] = useState<string>('')
-  const [selectedMesa, setSelectedMesa] = useState<ReservaMesaEstado | null>(null)
   const [editingReservaId, setEditingReservaId] = useState<number | null>(null)
   const [form, setForm] = useState<ReservacionFormState>(buildInitialForm())
   const [dialogOpen, setDialogOpen] = useState<boolean>(false)
   const [estadoDialogOpen, setEstadoDialogOpen] = useState<boolean>(false)
   const [estadoTargetReserva, setEstadoTargetReserva] = useState<Reservacion | null>(null)
   const [estadoValue, setEstadoValue] = useState<string>('pendiente')
-  const [loadingMesas, setLoadingMesas] = useState<boolean>(false)
   const [loadingAgenda, setLoadingAgenda] = useState<boolean>(false)
   const [saving, setSaving] = useState<boolean>(false)
-  const [mesasError, setMesasError] = useState<string>('')
   const [agendaError, setAgendaError] = useState<string>('')
 
   const estadoOptions = useMemo(() => {
@@ -643,11 +475,6 @@ export default function ReservacionesPage() {
     })
     return Array.from(normalized)
   }, [agendaReservas])
-
-  const mesaOptions = useMemo(
-    () => [...mesasEstado].sort((left, right) => left.numero - right.numero),
-    [mesasEstado],
-  )
 
   const clientesActivos = useMemo(
     () => clientes.filter((cliente) => cliente.activo !== false),
@@ -663,41 +490,6 @@ export default function ReservacionesPage() {
     }
   }
 
-  async function loadMesasEstado() {
-    setLoadingMesas(true)
-    setMesasError('')
-    try {
-        const primaryResponse = await reservacionesService.getMesasEstado({
-          at: buildAtParam(viewAt),
-          includeInactive,
-        })
-
-        let normalized = unwrapArrayPayload(primaryResponse.data)
-          .map((item) => normalizeMesaEstadoRecord(item))
-          .filter((item): item is ReservaMesaEstado => item !== null)
-
-        if (normalized.length === 0) {
-          const fallbackResponse = await reservacionesService.getMesasEstado({
-            includeInactive,
-          })
-
-          normalized = unwrapArrayPayload(fallbackResponse.data)
-            .map((item) => normalizeMesaEstadoRecord(item))
-            .filter((item): item is ReservaMesaEstado => item !== null)
-        }
-
-        setMesasEstado(normalized)
-    } catch (requestError) {
-      const backendMessage =
-        axios.isAxiosError(requestError) && requestError.response
-          ? extractBackendMessage(requestError.response.data)
-          : ''
-      setMesasError(backendMessage || 'No fue posible cargar el estado de mesas.')
-    } finally {
-      setLoadingMesas(false)
-    }
-  }
-
   async function loadAgenda() {
     setLoadingAgenda(true)
     setAgendaError('')
@@ -705,7 +497,6 @@ export default function ReservacionesPage() {
       const response = await reservacionesService.getAll({
         fecha: agendaDate || undefined,
         estado: agendaEstado || undefined,
-        mesaId: toPositiveNumber(agendaMesaId) ?? undefined,
       })
 
       const normalized = unwrapArrayPayload(response.data)
@@ -725,12 +516,8 @@ export default function ReservacionesPage() {
   }
 
   useEffect(() => {
-    void loadMesasEstado()
-  }, [viewAt, includeInactive])
-
-  useEffect(() => {
     void loadAgenda()
-  }, [agendaDate, agendaEstado, agendaMesaId])
+  }, [agendaDate, agendaEstado])
 
   useEffect(() => {
     void loadClientesBase()
@@ -942,10 +729,9 @@ export default function ReservacionesPage() {
     return createdCliente.id
   }
 
-  function openCreateDialogForMesa(mesa: ReservaMesaEstado) {
-    setSelectedMesa(mesa)
+  function openCreateDialog() {
     setEditingReservaId(null)
-    setForm(buildInitialForm(mesa.mesaId))
+    setForm(buildInitialForm())
     setDialogOpen(true)
   }
 
@@ -961,13 +747,10 @@ export default function ReservacionesPage() {
       }
 
       const fechaHora = splitFechaHora(normalized.fechaHora)
-      const matchedMesa = mesasEstado.find((mesa) => mesa.mesaId === normalized.mesaId) ?? null
 
-      setSelectedMesa(matchedMesa)
       setEditingReservaId(normalized.id)
       setForm({
         clienteId: normalized.clienteId ? String(normalized.clienteId) : '',
-        mesaId: String(normalized.mesaId),
         clienteNombre: normalized.clienteNombre ?? normalized.nombreCliente ?? '',
         clienteTelefono: normalized.clienteTelefono ?? normalized.telefono ?? '',
         fecha: fechaHora.fecha,
@@ -992,7 +775,6 @@ export default function ReservacionesPage() {
     const validation = reservacionSchema.safeParse({
       clienteNombre: form.clienteNombre,
       clienteTelefono: form.clienteTelefono,
-      mesaId: form.mesaId,
       fecha: form.fecha,
       hora: form.hora,
       cantidadPersonas: form.cantidadPersonas,
@@ -1015,7 +797,8 @@ export default function ReservacionesPage() {
       })
 
       const payload: CreateReservacionDto = {
-        mesaId: validation.data.mesaId,
+        nombreCliente: validation.data.clienteNombre,
+        telefono: validation.data.clienteTelefono,
         clienteId,
         fechaHora: `${validation.data.fecha}T${validation.data.hora}:00`,
         cantidadPersonas: validation.data.cantidadPersonas,
@@ -1032,7 +815,7 @@ export default function ReservacionesPage() {
       }
 
       setDialogOpen(false)
-      await Promise.all([loadAgenda(), loadMesasEstado()])
+      await loadAgenda()
     } catch (requestError) {
       const backendMessage =
         axios.isAxiosError(requestError) && requestError.response
@@ -1040,7 +823,7 @@ export default function ReservacionesPage() {
           : ''
 
       if (axios.isAxiosError(requestError) && requestError.response?.status === 409) {
-        toast.warning(backendMessage || 'Conflicto de horario: la mesa ya esta reservada en esa ventana.')
+        toast.warning(backendMessage || 'Conflicto de horario para la reserva.')
       } else {
         toast.error(backendMessage || 'No fue posible guardar la reserva.')
       }
@@ -1066,7 +849,7 @@ export default function ReservacionesPage() {
       toast.success('Estado de reserva actualizado.')
       setEstadoDialogOpen(false)
       setEstadoTargetReserva(null)
-      await Promise.all([loadAgenda(), loadMesasEstado()])
+      await loadAgenda()
     } catch (requestError) {
       const backendMessage =
         axios.isAxiosError(requestError) && requestError.response
@@ -1074,7 +857,7 @@ export default function ReservacionesPage() {
           : ''
 
       if (axios.isAxiosError(requestError) && requestError.response?.status === 409) {
-        toast.warning(backendMessage || 'No se pudo activar la reserva por conflicto de horario.')
+        toast.warning(backendMessage || 'No se pudo actualizar el estado por conflicto de horario.')
       } else {
         toast.error(backendMessage || 'No fue posible actualizar el estado.')
       }
@@ -1083,36 +866,42 @@ export default function ReservacionesPage() {
     }
   }
 
-  async function refreshAll() {
-    await Promise.all([loadMesasEstado(), loadAgenda()])
-  }
-
   return (
     <Box sx={{ color: COLOR_TEXT }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 3 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 3, flexWrap: 'wrap' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <EventSeatIcon sx={{ color: COLOR_GOLD }} />
-        <Typography
-          variant="h4"
-          sx={{ fontWeight: 'bold', color: COLOR_GOLD, fontFamily: '"Playfair Display", serif' }}
-        >
-          Reservaciones
-        </Typography>
+          <EventSeatIcon sx={{ color: COLOR_GOLD }} />
+          <Typography
+            variant="h4"
+            sx={{ fontWeight: 'bold', color: COLOR_GOLD, fontFamily: '"Playfair Display", serif' }}
+          >
+            Reservaciones
+          </Typography>
         </Box>
-        <Button
-          variant="outlined"
-          startIcon={<RefreshIcon />}
-          onClick={() => {
-            void refreshAll()
-          }}
-          sx={{
-            borderColor: 'rgba(212,175,55,0.5)',
-            color: COLOR_GOLD,
-            '&:hover': { borderColor: COLOR_GOLD, backgroundColor: 'rgba(212,175,55,0.08)' },
-          }}
-        >
-          Actualizar
-        </Button>
+        <Stack direction="row" spacing={1.5}>
+          <Button
+            variant="outlined"
+            startIcon={<RefreshIcon />}
+            onClick={() => {
+              void loadAgenda()
+            }}
+            sx={{
+              borderColor: 'rgba(212,175,55,0.5)',
+              color: COLOR_GOLD,
+              '&:hover': { borderColor: COLOR_GOLD, backgroundColor: 'rgba(212,175,55,0.08)' },
+            }}
+          >
+            Actualizar
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={openCreateDialog}
+            sx={{ backgroundColor: COLOR_GOLD, color: '#120b05', fontWeight: 700, '&:hover': { backgroundColor: '#e3c45f' } }}
+          >
+            Nueva reserva
+          </Button>
+        </Stack>
       </Box>
 
       <Paper
@@ -1125,169 +914,9 @@ export default function ReservacionesPage() {
           boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
         }}
       >
-        <Typography sx={{ color: 'rgba(243,233,210,0.88)', mb: 2 }}>
-          Módulo de reservas independiente: estado de mesas en tiempo real y agenda diaria.
+        <Typography sx={{ color: 'rgba(243,233,210,0.88)' }}>
+          Registra reservas por cliente, fecha y hora. La asignación de mesa se decide directamente en el salón al recibir a los clientes.
         </Typography>
-
-        <Box
-          sx={{
-            display: 'grid',
-            gap: 2,
-            gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 0.8fr)' },
-            alignItems: 'center',
-          }}
-        >
-          <Box>
-            <TextField
-              label="Referencia para estado de mesas"
-              type="datetime-local"
-              value={viewAt}
-              onChange={(event) => setViewAt(event.target.value)}
-              fullWidth
-              slotProps={{ inputLabel: { shrink: true } }}
-              sx={{
-                '& .MuiOutlinedInput-root': { color: COLOR_TEXT, '& fieldset': { borderColor: 'rgba(212,175,55,0.35)' } },
-                '& .MuiInputLabel-root': { color: 'rgba(243,233,210,0.78)' },
-              }}
-            />
-          </Box>
-          <Box>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={includeInactive}
-                  onChange={(event) => setIncludeInactive(event.target.checked)}
-                  sx={{
-                    '& .MuiSwitch-switchBase.Mui-checked': { color: COLOR_GOLD },
-                    '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: COLOR_GOLD },
-                  }}
-                />
-              }
-              label="Incluir mesas inactivas"
-            />
-          </Box>
-          <Box>
-            <Button
-              fullWidth
-              variant="contained"
-              startIcon={<AutorenewIcon />}
-              onClick={() => {
-                void loadMesasEstado()
-              }}
-              sx={{ backgroundColor: COLOR_GOLD, color: '#120b05', fontWeight: 700, '&:hover': { backgroundColor: '#e3c45f' } }}
-            >
-              Refrescar mesas
-            </Button>
-          </Box>
-        </Box>
-      </Paper>
-
-      {mesasError ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {mesasError}
-        </Alert>
-      ) : null}
-
-      <Paper
-        sx={{
-          p: 2.5,
-          mb: 3,
-          borderRadius: 2,
-          backgroundColor: 'rgba(10,10,10,0.72)',
-          border: '1px solid rgba(212,175,55,0.32)',
-        }}
-      >
-        <Typography variant="h6" sx={{ color: COLOR_GOLD, mb: 2, fontWeight: 700 }}>
-          Estado de mesas
-        </Typography>
-
-        {loadingMesas ? (
-          <Stack direction="row" sx={{ justifyContent: 'center', py: 4 }}>
-            <CircularProgress sx={{ color: COLOR_GOLD }} />
-          </Stack>
-        ) : mesasEstado.length === 0 ? (
-          <Alert severity="info">No hay mesas para mostrar en este momento.</Alert>
-        ) : (
-          <Box
-            sx={{
-              display: 'grid',
-              gap: 2,
-              gridTemplateColumns: {
-                xs: '1fr',
-                sm: 'repeat(2, minmax(0, 1fr))',
-                md: 'repeat(3, minmax(0, 1fr))',
-                lg: 'repeat(4, minmax(0, 1fr))',
-              },
-            }}
-          >
-            {mesaOptions.map((mesa) => (
-              <Box key={mesa.mesaId}>
-                <Card
-                  sx={{
-                    height: '100%',
-                    borderRadius: 2,
-                    border: mesa.reservada
-                      ? '1px solid rgba(143,29,46,0.8)'
-                      : '1px solid rgba(52,211,153,0.45)',
-                    backgroundColor: mesa.reservada ? 'rgba(143,29,46,0.17)' : 'rgba(16,90,57,0.14)',
-                  }}
-                >
-                  <CardContent>
-                    <Stack
-                      direction="row"
-                      sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1 }}
-                    >
-                      <Typography variant="h6" sx={{ color: COLOR_TEXT, fontWeight: 700 }}>
-                        Mesa #{mesa.numero}
-                      </Typography>
-                      <Chip
-                        size="small"
-                        label={mesa.reservada ? 'Reservada' : 'Disponible'}
-                        sx={{
-                          bgcolor: mesa.reservada ? COLOR_MAROON : 'rgba(16,185,129,0.85)',
-                          color: '#fff',
-                          fontWeight: 700,
-                        }}
-                      />
-                    </Stack>
-
-                    <Typography sx={{ color: 'rgba(243,233,210,0.88)' }}>
-                      Capacidad: {mesa.capacidad} persona(s)
-                    </Typography>
-                    <Typography sx={{ color: 'rgba(243,233,210,0.8)' }}>
-                      Estado mesa: {mesa.activa ? 'Activa' : 'Inactiva'}
-                    </Typography>
-                    {mesa.cliente ? (
-                      <Typography sx={{ color: 'rgba(243,233,210,0.8)' }}>
-                        Cliente: {mesa.cliente}
-                      </Typography>
-                    ) : null}
-                    {mesa.bloqueDesde || mesa.bloqueHasta ? (
-                      <Typography sx={{ color: 'rgba(243,233,210,0.8)', fontSize: '0.86rem' }}>
-                        Bloqueo: {formatDateTime(mesa.bloqueDesde)} - {formatDateTime(mesa.bloqueHasta)}
-                      </Typography>
-                    ) : null}
-
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      disabled={!mesa.activa}
-                      onClick={() => openCreateDialogForMesa(mesa)}
-                      sx={{
-                        mt: 1.5,
-                        borderColor: 'rgba(212,175,55,0.45)',
-                        color: COLOR_GOLD,
-                        '&:hover': { borderColor: COLOR_GOLD, backgroundColor: 'rgba(212,175,55,0.1)' },
-                      }}
-                    >
-                      Nueva reserva
-                    </Button>
-                  </CardContent>
-                </Card>
-              </Box>
-            ))}
-          </Box>
-        )}
       </Paper>
 
       <Paper
@@ -1299,7 +928,7 @@ export default function ReservacionesPage() {
         }}
       >
         <Typography variant="h6" sx={{ color: COLOR_GOLD, mb: 2, fontWeight: 700 }}>
-          Agenda del día
+          Lista de reservas
         </Typography>
 
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} sx={{ mb: 2 }}>
@@ -1333,24 +962,6 @@ export default function ReservacionesPage() {
               </MenuItem>
             ))}
           </TextField>
-          <TextField
-            label="Mesa"
-            select
-            value={agendaMesaId}
-            onChange={(event) => setAgendaMesaId(event.target.value)}
-            sx={{
-              minWidth: 200,
-              '& .MuiOutlinedInput-root': { color: COLOR_TEXT, '& fieldset': { borderColor: 'rgba(212,175,55,0.35)' } },
-              '& .MuiInputLabel-root': { color: 'rgba(243,233,210,0.78)' },
-            }}
-          >
-            <MenuItem value="">Todas</MenuItem>
-            {mesaOptions.map((mesa) => (
-              <MenuItem key={mesa.mesaId} value={String(mesa.mesaId)}>
-                Mesa #{mesa.numero}
-              </MenuItem>
-            ))}
-          </TextField>
           <Button
             variant="outlined"
             startIcon={<RefreshIcon />}
@@ -1363,7 +974,7 @@ export default function ReservacionesPage() {
               color: COLOR_GOLD,
             }}
           >
-            Recargar agenda
+            Recargar lista
           </Button>
         </Stack>
 
@@ -1383,9 +994,9 @@ export default function ReservacionesPage() {
               <TableHead>
                 <TableRow>
                   <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Cliente</TableCell>
-                  <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Mesa</TableCell>
                   <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Fecha/Hora</TableCell>
                   <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Personas</TableCell>
+                  <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Observaciones</TableCell>
                   <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Estado</TableCell>
                   <TableCell align="right" sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Acciones</TableCell>
                 </TableRow>
@@ -1408,11 +1019,11 @@ export default function ReservacionesPage() {
                           {reserva.clienteTelefono ?? reserva.telefono ?? 'Sin teléfono'}
                         </Typography>
                       </TableCell>
-                      <TableCell sx={{ color: COLOR_TEXT }}>
-                        Mesa #{reserva.mesa?.numero ?? reserva.mesaId}
-                      </TableCell>
                       <TableCell sx={{ color: COLOR_TEXT }}>{formatDateTime(reserva.fechaHora)}</TableCell>
                       <TableCell sx={{ color: COLOR_TEXT }}>{reserva.cantidadPersonas}</TableCell>
+                      <TableCell sx={{ color: COLOR_MUTED, maxWidth: 260, whiteSpace: 'pre-line' }}>
+                        {reserva.observaciones ?? reserva.notas ?? 'Sin observaciones'}
+                      </TableCell>
                       <TableCell>
                         <Chip
                           size="small"
@@ -1458,27 +1069,10 @@ export default function ReservacionesPage() {
 
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle sx={{ backgroundColor: '#160f0c', color: COLOR_GOLD, fontWeight: 800 }}>
-          {editingReservaId ? 'Editar reserva' : `Nueva reserva${selectedMesa ? ` - Mesa #${selectedMesa.numero}` : ''}`}
+          {editingReservaId ? 'Editar reserva' : 'Nueva reserva'}
         </DialogTitle>
         <DialogContent sx={{ backgroundColor: '#160f0c', pt: 3 }}>
           <Stack spacing={1.5} sx={{ pt: 1 }}>
-            <TextField
-              label="Mesa"
-              select
-              value={form.mesaId}
-              onChange={(event) => setForm((current) => ({ ...current, mesaId: event.target.value }))}
-              fullWidth
-              sx={{
-                '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
-                '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
-              }}
-            >
-              {mesaOptions.map((mesa) => (
-                <MenuItem key={mesa.mesaId} value={String(mesa.mesaId)}>
-                  Mesa #{mesa.numero} {mesa.activa ? '' : '(Inactiva)'}
-                </MenuItem>
-              ))}
-            </TextField>
             <TextField
               label="Nombre del cliente"
               value={form.clienteNombre}
@@ -1629,7 +1223,7 @@ export default function ReservacionesPage() {
           <Stack spacing={1.5} sx={{ pt: 1 }}>
             <Typography variant="body2" sx={{ color: COLOR_MUTED }}>
               {estadoTargetReserva
-                ? `${estadoTargetReserva.clienteNombre ?? estadoTargetReserva.nombreCliente ?? 'Cliente'} - Mesa #${estadoTargetReserva.mesa?.numero ?? estadoTargetReserva.mesaId}`
+                ? `${estadoTargetReserva.clienteNombre ?? estadoTargetReserva.nombreCliente ?? 'Cliente'} - ${formatDateTime(estadoTargetReserva.fechaHora)}`
                 : ''}
             </Typography>
             <TextField
