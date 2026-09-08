@@ -665,9 +665,40 @@ interface UnassignedPoolLine {
   detailId: number
   productoId: number | null
   label: string
+  observacion: string | undefined
   cantidad: number
   precioUnitario: number
   subtotal: number
+}
+
+interface UnassignedDisplayLine {
+  detailId: number
+  productoId: number | undefined
+  label: string
+  observacion: string | undefined
+  cantidad: number
+  subtotal: number
+}
+
+// Fila visual agrupada: el pedido puede tener varias líneas físicas del mismo producto
+// (una por cada envío a cocina) y en la división se muestran como una sola línea.
+interface GroupedUnassignedLine {
+  key: string
+  productoId: number | undefined
+  label: string
+  observacion: string | undefined
+  cantidad: number
+  subtotal: number
+  memberLines: Array<{ detailId: number; cantidad: number }>
+}
+
+interface GroupedAccountLine {
+  key: string
+  label: string
+  observacion: string | undefined
+  cantidad: number
+  subtotal: number
+  lines: PedidoAccountDetail[]
 }
 
 function normalizeUnassignedPoolLine(item: unknown): UnassignedPoolLine | null {
@@ -731,6 +762,12 @@ function normalizeUnassignedPoolLine(item: unknown): UnassignedPoolLine | null {
       record.productoId ?? record.producto_id ?? record.product_id ?? nestedDetail?.productoId ?? nestedDetail?.producto_id ?? productoRecord?.id,
     ),
     label,
+    observacion:
+      typeof record.observacion === 'string' && record.observacion.trim()
+        ? record.observacion.trim()
+        : typeof nestedDetail?.observacion === 'string' && nestedDetail.observacion.trim()
+          ? nestedDetail.observacion.trim()
+          : undefined,
     cantidad: roundMoney(cantidadValue),
     precioUnitario: Number.isFinite(precioUnitarioValue) ? precioUnitarioValue : 0,
     subtotal: roundMoney(
@@ -912,7 +949,7 @@ export default function FacturacionModal({
   const [paymentScopeById, setPaymentScopeById] = useState<Record<number, number | null>>({})
 
   const [selectedAccountId, setSelectedAccountId] = useState('')
-  const [splitSelectionByDetail, setSplitSelectionByDetail] = useState<Record<number, { checked: boolean; cantidad: string }>>({})
+  const [splitSelectionByLine, setSplitSelectionByLine] = useState<Record<string, { checked: boolean; cantidad: string }>>({})
   const [detailMoveQty, setDetailMoveQty] = useState<Record<string, string>>({})
   const [detailMoveTarget, setDetailMoveTarget] = useState<Record<string, string>>({})
 
@@ -1188,13 +1225,14 @@ export default function FacturacionModal({
     return ids
   }, [accounts])
 
-  const unassignedDetails = useMemo<Array<{ detailId: number; productoId: number | undefined; label: string; cantidad: number; subtotal: number }>>(() => {
+  const unassignedDetails = useMemo<UnassignedDisplayLine[]>(() => {
     // Fuente autoritativa: pool "sin asignar" del backend (ya viene descontado tras cada movimiento).
     if (unassignedPool) {
       return unassignedPool.map((line) => ({
         detailId: line.detailId,
         productoId: line.productoId ?? detailsById.get(line.detailId)?.productoId,
         label: line.label,
+        observacion: line.observacion ?? (detailsById.get(line.detailId)?.observacion?.trim() || undefined),
         cantidad: line.cantidad,
         subtotal: line.subtotal,
       }))
@@ -1202,7 +1240,7 @@ export default function FacturacionModal({
 
     // Fallback local: restar lo asignado a cuentas del detalle completo del pedido.
     return details
-      .map((detail): { detailId: number; productoId: number | undefined; label: string; cantidad: number; subtotal: number } | null => {
+      .map((detail): UnassignedDisplayLine | null => {
         const assignedQty = assignedQuantityByDetailId.get(detail.id) ?? 0
         const detailQty = Number(detail.cantidad ?? 0)
         const unitPrice = Number(detail.precioUnitario ?? 0)
@@ -1226,12 +1264,79 @@ export default function FacturacionModal({
           detailId: detail.id,
           productoId: detail.productoId,
           label: detail.producto?.nombre ?? detail.productoNombre ?? 'Producto',
+          observacion: detail.observacion?.trim() || undefined,
           cantidad: roundMoney(remainingQty),
           subtotal: subtotal > 0 ? roundMoney(subtotal) : roundMoney(fallbackSubtotal),
         }
       })
-      .filter((item): item is { detailId: number; productoId: number | undefined; label: string; cantidad: number; subtotal: number } => item !== null)
+      .filter((item): item is UnassignedDisplayLine => item !== null)
   }, [assignedDetailIds, assignedQuantityByDetailId, details, detailsById, unassignedPool])
+
+  // Agrupa las líneas físicas del mismo producto (y misma observación) en una sola fila:
+  // lo que cambia es la cantidad, no la cantidad de filas.
+  const groupedUnassignedLines = useMemo<GroupedUnassignedLine[]>(() => {
+    const groups = new Map<string, GroupedUnassignedLine>()
+
+    for (const line of unassignedDetails) {
+      const key = line.productoId ? `p:${line.productoId}|${line.observacion ?? ''}` : `d:${line.detailId}`
+      const existing = groups.get(key)
+
+      if (existing) {
+        existing.cantidad = roundMoney(existing.cantidad + line.cantidad)
+        existing.subtotal = roundMoney(existing.subtotal + line.subtotal)
+        existing.memberLines.push({ detailId: line.detailId, cantidad: line.cantidad })
+      } else {
+        groups.set(key, {
+          key,
+          productoId: line.productoId,
+          label: line.label,
+          observacion: line.observacion,
+          cantidad: roundMoney(line.cantidad),
+          subtotal: roundMoney(line.subtotal),
+          memberLines: [{ detailId: line.detailId, cantidad: line.cantidad }],
+        })
+      }
+    }
+
+    return Array.from(groups.values())
+  }, [unassignedDetails])
+
+  // Lo mismo para las líneas ya asignadas a una cuenta: se agrupan por producto y observación.
+  function groupAccountLines(accountDetails: PedidoAccountDetail[]): GroupedAccountLine[] {
+    const groups = new Map<string, GroupedAccountLine>()
+
+    for (const detail of accountDetails) {
+      const detailId = toPositiveInt(detail.detailId ?? detail.pedidoDetalleId)
+      const source = detailId ? detailsById.get(detailId) : null
+      const label = source?.producto?.nombre ?? source?.productoNombre ?? detail.productoNombre ?? 'Producto'
+      const productoId = toPositiveInt(detail.productoId ?? source?.productoId)
+      const observacion = source?.observacion?.trim() || undefined
+      const key = productoId ? `p:${productoId}|${observacion ?? ''}` : `n:${label}|${observacion ?? ''}`
+      const cantidadValue = Number(detail.cantidad ?? source?.cantidad ?? 0)
+      const cantidad = Number.isFinite(cantidadValue) && cantidadValue > 0 ? cantidadValue : 0
+      const unitPrice = Number(detail.precioUnitario ?? source?.precioUnitario ?? 0)
+      const subtotalValue = Number(detail.subtotal ?? source?.subtotal ?? Number.NaN)
+      const subtotal = Number.isFinite(subtotalValue) && subtotalValue > 0 ? subtotalValue : cantidad * unitPrice
+
+      const existing = groups.get(key)
+      if (existing) {
+        existing.cantidad = roundMoney(existing.cantidad + cantidad)
+        existing.subtotal = roundMoney(existing.subtotal + (Number.isFinite(subtotal) ? subtotal : 0))
+        existing.lines.push(detail)
+      } else {
+        groups.set(key, {
+          key,
+          label,
+          observacion,
+          cantidad: roundMoney(cantidad),
+          subtotal: roundMoney(Number.isFinite(subtotal) ? subtotal : 0),
+          lines: [detail],
+        })
+      }
+    }
+
+    return Array.from(groups.values())
+  }
 
   function getScopeKey(accountId: number | null): string {
     return accountId ? `ACCOUNT:${accountId}` : ORDER_SCOPE_KEY
@@ -1533,10 +1638,9 @@ export default function FacturacionModal({
   }
 
   function buildSplitItemsFromSelection() {
-    const selectedEntries = Object.entries(splitSelectionByDetail)
+    const selectedEntries = Object.entries(splitSelectionByLine)
       .filter(([, value]) => value.checked)
-      .map(([detailId, value]) => ({ detailId: Number(detailId), cantidadRaw: String(value.cantidad ?? '').trim() }))
-      .filter((entry) => Number.isFinite(entry.detailId) && entry.detailId > 0)
+      .map(([key, value]) => ({ key, cantidadRaw: String(value.cantidad ?? '').trim() }))
 
     if (selectedEntries.length === 0) {
       return []
@@ -1545,48 +1649,64 @@ export default function FacturacionModal({
     const items: Array<{ detailId?: number; productoId?: number; cantidad?: number }> = []
 
     for (const entry of selectedEntries) {
-      const available = unassignedDetails.find((item) => item.detailId === entry.detailId)
+      const group = groupedUnassignedLines.find((item) => item.key === entry.key)
 
-      if (!available) {
+      if (!group) {
         toast.error('Uno de los productos seleccionados ya no tiene cantidad disponible para dividir.')
         return null
       }
 
-      let cantidad: number | undefined
+      let remaining: number | null = null
 
       if (entry.cantidadRaw) {
         const parsed = Number(entry.cantidadRaw)
         const normalized = Number.isFinite(parsed) ? Math.trunc(parsed) : Number.NaN
 
         if (!Number.isFinite(normalized) || normalized <= 0) {
-          toast.error(`La cantidad para ${available.label} debe ser un entero mayor a 0.`)
+          toast.error(`La cantidad para ${group.label} debe ser un entero mayor a 0.`)
           return null
         }
 
-        if (normalized > available.cantidad) {
-          toast.error(`La cantidad para ${available.label} no puede exceder ${available.cantidad} disponible(s).`)
+        if (normalized > group.cantidad) {
+          toast.error(`La cantidad para ${group.label} no puede exceder ${group.cantidad} disponible(s).`)
           return null
         }
 
-        cantidad = normalized
+        remaining = normalized
       }
 
-      items.push({
-        detailId: entry.detailId,
-        productoId: available.productoId ?? detailsById.get(entry.detailId)?.productoId,
-        cantidad,
-      })
+      // Se reparte la cantidad entre las líneas físicas del producto (línea exacta);
+      // el backend las fusiona en una sola línea dentro de la cuenta destino.
+      for (const member of group.memberLines) {
+        if (remaining !== null && remaining <= 0) {
+          break
+        }
+
+        if (remaining === null) {
+          // Sin cantidad: se toma toda la cantidad disponible de cada línea del producto.
+          items.push({ detailId: member.detailId, productoId: group.productoId })
+          continue
+        }
+
+        const take = Math.min(remaining, member.cantidad > 0 ? member.cantidad : remaining)
+        if (take <= 0) {
+          continue
+        }
+
+        items.push({ detailId: member.detailId, productoId: group.productoId, cantidad: take })
+        remaining -= take
+      }
     }
 
     return items
   }
 
   function clearSplitSelection() {
-    setSplitSelectionByDetail({})
+    setSplitSelectionByLine({})
   }
 
-  function getDetailMoveKey(accountId: number, accountDetailId: number): string {
-    return `${accountId}:${accountDetailId}`
+  function getDetailMoveKey(accountId: number, lineKey: string | number): string {
+    return `${accountId}:${lineKey}`
   }
 
   function resolveOptionalQuantity(rawValue: string, label: string): number | null | undefined {
@@ -1701,18 +1821,12 @@ export default function FacturacionModal({
     }
   }
 
-  async function handleMoveAccountDetail(accountId: number, accountDetail: PedidoAccountDetail) {
+  async function handleMoveAccountDetail(accountId: number, group: GroupedAccountLine) {
     if (!pedidoId) {
       return
     }
 
-    const sourceDetailId = toPositiveInt(accountDetail.detailId ?? accountDetail.pedidoDetalleId)
-    const primaryDetailId = sourceDetailId ?? accountDetail.id
-    const alternateDetailId = accountDetail.id !== primaryDetailId ? accountDetail.id : undefined
-    const source = sourceDetailId ? detailsById.get(sourceDetailId) : null
-    const label = source?.producto?.nombre ?? source?.productoNombre ?? accountDetail.productoNombre ?? 'producto'
-
-    const key = getDetailMoveKey(accountId, accountDetail.id)
+    const key = getDetailMoveKey(accountId, group.key)
     const targetRaw = detailMoveTarget[key] ?? ''
     const targetAccountId = toPositiveInt(targetRaw)
     if (!targetAccountId) {
@@ -1725,23 +1839,49 @@ export default function FacturacionModal({
       return
     }
 
-    const cantidad = resolveOptionalQuantity(detailMoveQty[key] ?? '', label)
+    const cantidad = resolveOptionalQuantity(detailMoveQty[key] ?? '', group.label)
     if (cantidad === null) {
       return
     }
 
-    const lineCantidad = Number(accountDetail.cantidad ?? 0)
-    if (cantidad !== undefined && Number.isFinite(lineCantidad) && lineCantidad > 0 && cantidad > lineCantidad) {
-      toast.error(`La cantidad a mover de ${label} no puede exceder ${lineCantidad}.`)
+    if (cantidad !== undefined && group.cantidad > 0 && cantidad > group.cantidad) {
+      toast.error(`La cantidad a mover de ${group.label} no puede exceder ${group.cantidad}.`)
       return
     }
 
     setSaving(true)
     try {
-      await pedidosService.moveAccountDetail(pedidoId, accountId, primaryDetailId, {
-        cantidad,
-        cuentaDestinoId: targetAccountId,
-      }, alternateDetailId)
+      // La fila visual puede agrupar varias líneas físicas del mismo producto; se mueven en orden.
+      let remaining = cantidad ?? Number.POSITIVE_INFINITY
+
+      for (const line of group.lines) {
+        if (remaining <= 0) {
+          break
+        }
+
+        const sourceDetailId = toPositiveInt(line.detailId ?? line.pedidoDetalleId)
+        const primaryDetailId = sourceDetailId ?? line.id
+        const alternateDetailId = line.id !== primaryDetailId ? line.id : undefined
+        const lineQty = Number(line.cantidad ?? 0)
+        const take =
+          cantidad === undefined
+            ? undefined
+            : Math.min(remaining, Number.isFinite(lineQty) && lineQty > 0 ? lineQty : remaining)
+
+        if (take !== undefined && take <= 0) {
+          continue
+        }
+
+        await pedidosService.moveAccountDetail(pedidoId, accountId, primaryDetailId, {
+          cantidad: take,
+          cuentaDestinoId: targetAccountId,
+        }, alternateDetailId)
+
+        if (take !== undefined) {
+          remaining -= take
+        }
+      }
+
       toast.success('Producto movido a la cuenta destino.')
       await reloadAccountsAndPayments()
       setDetailMoveQty((current) => ({ ...current, [key]: '' }))
@@ -1757,33 +1897,52 @@ export default function FacturacionModal({
     }
   }
 
-  async function handleReturnAccountDetail(accountId: number, accountDetail: PedidoAccountDetail) {
+  async function handleReturnAccountDetail(accountId: number, group: GroupedAccountLine) {
     if (!pedidoId) {
       return
     }
 
-    const sourceDetailId = toPositiveInt(accountDetail.detailId ?? accountDetail.pedidoDetalleId)
-    const primaryDetailId = sourceDetailId ?? accountDetail.id
-    const alternateDetailId = accountDetail.id !== primaryDetailId ? accountDetail.id : undefined
-    const source = sourceDetailId ? detailsById.get(sourceDetailId) : null
-    const label = source?.producto?.nombre ?? source?.productoNombre ?? accountDetail.productoNombre ?? 'producto'
-
-    const key = getDetailMoveKey(accountId, accountDetail.id)
-    const cantidad = resolveOptionalQuantity(detailMoveQty[key] ?? '', label)
+    const key = getDetailMoveKey(accountId, group.key)
+    const cantidad = resolveOptionalQuantity(detailMoveQty[key] ?? '', group.label)
     if (cantidad === null) {
       return
     }
 
-    const lineCantidad = Number(accountDetail.cantidad ?? 0)
-    if (cantidad !== undefined && Number.isFinite(lineCantidad) && lineCantidad > 0 && cantidad > lineCantidad) {
-      toast.error(`La cantidad a devolver de ${label} no puede exceder ${lineCantidad}.`)
+    if (cantidad !== undefined && group.cantidad > 0 && cantidad > group.cantidad) {
+      toast.error(`La cantidad a devolver de ${group.label} no puede exceder ${group.cantidad}.`)
       return
     }
 
     setSaving(true)
     try {
       // DELETE devuelve la cantidad al pool sin asignar (cuentaPedidoId = null), fusionando líneas del mismo producto.
-      await pedidosService.removeAccountDetail(pedidoId, accountId, primaryDetailId, { cantidad }, alternateDetailId)
+      let remaining = cantidad ?? Number.POSITIVE_INFINITY
+
+      for (const line of group.lines) {
+        if (remaining <= 0) {
+          break
+        }
+
+        const sourceDetailId = toPositiveInt(line.detailId ?? line.pedidoDetalleId)
+        const primaryDetailId = sourceDetailId ?? line.id
+        const alternateDetailId = line.id !== primaryDetailId ? line.id : undefined
+        const lineQty = Number(line.cantidad ?? 0)
+        const take =
+          cantidad === undefined
+            ? undefined
+            : Math.min(remaining, Number.isFinite(lineQty) && lineQty > 0 ? lineQty : remaining)
+
+        if (take !== undefined && take <= 0) {
+          continue
+        }
+
+        await pedidosService.removeAccountDetail(pedidoId, accountId, primaryDetailId, { cantidad: take }, alternateDetailId)
+
+        if (take !== undefined) {
+          remaining -= take
+        }
+      }
+
       toast.success('Producto devuelto a sin asignar.')
       await reloadAccountsAndPayments()
       setDetailMoveQty((current) => ({ ...current, [key]: '' }))
@@ -1947,25 +2106,17 @@ export default function FacturacionModal({
     const accountDetails = account?.detalles ?? []
 
     const items = accountId
-      ? accountDetails.map((detail) => {
-          const detailId = detail.detailId ?? detail.pedidoDetalleId
-          const source = detailId ? detailsById.get(detailId) : null
-          const descripcion = source?.producto?.nombre ?? source?.productoNombre ?? detail.productoNombre ?? 'Producto'
-          const cantidad = Number(detail.cantidad ?? source?.cantidad ?? 0)
-          const amount = Number(detail.subtotal ?? source?.subtotal ?? cantidad * Number(detail.precioUnitario ?? source?.precioUnitario ?? 0))
-
-          return {
-            descripcion,
-            cantidad,
-            precio: Number.isFinite(amount) ? amount : 0,
-            observacion: source?.observacion?.trim() || undefined,
-          }
-        })
-      : unassignedDetails.map((detail) => ({
-          descripcion: detail.label,
-          cantidad: Number(detail.cantidad ?? 0),
-          precio: Number(detail.subtotal ?? 0),
-          observacion: undefined,
+      ? groupAccountLines(accountDetails).map((line) => ({
+          descripcion: line.label,
+          cantidad: line.cantidad,
+          precio: line.subtotal,
+          observacion: line.observacion,
+        }))
+      : groupedUnassignedLines.map((line) => ({
+          descripcion: line.label,
+          cantidad: line.cantidad,
+          precio: line.subtotal,
+          observacion: line.observacion,
         }))
 
     const scopePayments = payments.filter((payment) => {
@@ -2103,7 +2254,7 @@ export default function FacturacionModal({
                   <Button
                     variant="outlined"
                     onClick={() => void handleCreateAccount()}
-                    disabled={saving || Object.values(splitSelectionByDetail).every((entry) => !entry.checked)}
+                    disabled={saving || Object.values(splitSelectionByLine).every((entry) => !entry.checked)}
                     sx={{ color: COLOR_GOLD, borderColor: 'rgba(212,175,55,0.35)' }}
                   >
                     Crear cuenta
@@ -2125,21 +2276,21 @@ export default function FacturacionModal({
                             : 'Este pedido no tiene productos pendientes de dividir.'}
                         </Typography>
                       ) : (
-                        unassignedDetails.map((row) => {
-                          const selected = splitSelectionByDetail[row.detailId] ?? { checked: false, cantidad: '' }
+                        groupedUnassignedLines.map((row) => {
+                          const selected = splitSelectionByLine[row.key] ?? { checked: false, cantidad: '' }
                           return (
-                            <Stack key={row.detailId} direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ alignItems: { md: 'center' } }}>
+                            <Stack key={row.key} direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ alignItems: { md: 'center' } }}>
                               <FormControlLabel
                                 sx={{ flex: 1, m: 0 }}
                                 control={
                                   <Checkbox
                                     checked={selected.checked}
                                     onChange={(event) =>
-                                      setSplitSelectionByDetail((current) => ({
+                                      setSplitSelectionByLine((current) => ({
                                         ...current,
-                                        [row.detailId]: {
+                                        [row.key]: {
                                           checked: event.target.checked,
-                                          cantidad: current[row.detailId]?.cantidad ?? '',
+                                          cantidad: current[row.key]?.cantidad ?? '',
                                         },
                                       }))
                                     }
@@ -2149,6 +2300,7 @@ export default function FacturacionModal({
                                 label={
                                   <Typography sx={{ color: COLOR_TEXT }}>
                                     {row.label} • Disponible: {row.cantidad} • {formatCRC(row.subtotal)}
+                                    {row.observacion ? ` (${row.observacion})` : ''}
                                   </Typography>
                                 }
                               />
@@ -2158,10 +2310,10 @@ export default function FacturacionModal({
                                 type="number"
                                 value={selected.cantidad}
                                 onChange={(event) =>
-                                  setSplitSelectionByDetail((current) => ({
+                                  setSplitSelectionByLine((current) => ({
                                     ...current,
-                                    [row.detailId]: {
-                                      checked: current[row.detailId]?.checked ?? false,
+                                    [row.key]: {
+                                      checked: current[row.key]?.checked ?? false,
                                       cantidad: event.target.value,
                                     },
                                   }))
@@ -2190,8 +2342,8 @@ export default function FacturacionModal({
                     disabled={
                       saving ||
                       !selectedAccountId ||
-                      unassignedDetails.length === 0 ||
-                      Object.values(splitSelectionByDetail).every((entry) => !entry.checked)
+                      groupedUnassignedLines.length === 0 ||
+                      Object.values(splitSelectionByLine).every((entry) => !entry.checked)
                     }
                     sx={{ color: COLOR_TEXT, borderColor: 'rgba(243,233,210,0.35)' }}
                   >
@@ -2207,7 +2359,7 @@ export default function FacturacionModal({
                   </Button>
                 </Stack>
 
-                {accounts.length > 0 && unassignedDetails.length === 0 ? (
+                {accounts.length > 0 && groupedUnassignedLines.length === 0 ? (
                   <Alert severity="success">Cuenta completamente dividida: no quedan productos sin asignar.</Alert>
                 ) : null}
 
@@ -2220,21 +2372,18 @@ export default function FacturacionModal({
                       <Typography sx={{ color: COLOR_MUTED, fontSize: '0.85rem' }}>Sin productos en esta cuenta.</Typography>
                     ) : (
                       <Stack spacing={0.6}>
-                        {(account.detalles ?? []).map((detail) => {
-                          const detailId = detail.detailId ?? detail.pedidoDetalleId
-                          const source = detailId ? detailsById.get(detailId) : null
-                          const label = source?.producto?.nombre ?? source?.productoNombre ?? detail.productoNombre ?? 'Producto'
-                          const amount = detail.subtotal ?? source?.subtotal ?? 0
-                          const rowKey = getDetailMoveKey(account.id, detail.id)
+                        {groupAccountLines(account.detalles ?? []).map((group) => {
+                          const rowKey = getDetailMoveKey(account.id, group.key)
 
                           return (
                             <Stack
-                              key={detail.id}
+                              key={group.key}
                               spacing={1}
                               sx={{ p: 1, borderRadius: 1, backgroundColor: 'rgba(255,255,255,0.03)' }}
                             >
                               <Typography sx={{ color: COLOR_TEXT }}>
-                                {label} • {Number(detail.cantidad ?? source?.cantidad ?? 0)} uds • {formatCRC(Number(amount) || 0)}
+                                {group.label} • {group.cantidad} uds • {formatCRC(group.subtotal)}
+                                {group.observacion ? ` (${group.observacion})` : ''}
                               </Typography>
 
                               <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
@@ -2246,7 +2395,7 @@ export default function FacturacionModal({
                                     setDetailMoveQty((current) => ({ ...current, [rowKey]: event.target.value }))
                                   }
                                   slotProps={{ htmlInput: { min: 1, step: 1 } }}
-                                  helperText={`Vacío = todo (máx ${Number(detail.cantidad ?? source?.cantidad ?? 0)})`}
+                                  helperText={`Vacío = todo (máx ${group.cantidad})`}
                                   sx={{
                                     width: { xs: '100%', md: 130 },
                                     '& .MuiFormHelperText-root': { color: COLOR_MUTED },
@@ -2282,7 +2431,7 @@ export default function FacturacionModal({
                                   <Button
                                     size="small"
                                     variant="outlined"
-                                    onClick={() => void handleMoveAccountDetail(account.id, detail)}
+                                    onClick={() => void handleMoveAccountDetail(account.id, group)}
                                     sx={{ color: COLOR_GOLD, borderColor: 'rgba(212,175,55,0.35)' }}
                                   >
                                     Mover
@@ -2290,7 +2439,7 @@ export default function FacturacionModal({
                                   <Button
                                     size="small"
                                     sx={{ color: '#f4a8b2' }}
-                                    onClick={() => void handleReturnAccountDetail(account.id, detail)}
+                                    onClick={() => void handleReturnAccountDetail(account.id, group)}
                                   >
                                     Devolver
                                   </Button>
@@ -2369,24 +2518,12 @@ export default function FacturacionModal({
 
                         {hasProducts ? (
                           <Stack spacing={0.5}>
-                            {scope.accountId
-                              ? accountDetails.map((detail) => {
-                                  const detailId = detail.detailId ?? detail.pedidoDetalleId
-                                  const source = detailId ? detailsById.get(detailId) : null
-                                  const label = source?.producto?.nombre ?? source?.productoNombre ?? detail.productoNombre ?? 'Producto'
-                                  const quantity = Number(detail.cantidad ?? source?.cantidad ?? 0)
-                                  const amount = Number(detail.subtotal ?? source?.subtotal ?? quantity * Number(detail.precioUnitario ?? source?.precioUnitario ?? 0))
-                                  return (
-                                    <Typography key={detail.id} sx={{ color: COLOR_TEXT, fontSize: '0.88rem' }}>
-                                      {label} • {quantity > 0 ? `${quantity} uds` : 'Cantidad no definida'} • {formatCRC(Number.isFinite(amount) ? amount : 0)}
-                                    </Typography>
-                                  )
-                                })
-                              : unassignedDetails.map((detail) => (
-                                  <Typography key={detail.detailId} sx={{ color: COLOR_TEXT, fontSize: '0.88rem' }}>
-                                    {detail.label} • {detail.cantidad} uds • {formatCRC(detail.subtotal)}
-                                  </Typography>
-                                ))}
+                            {(scope.accountId ? groupAccountLines(accountDetails) : groupedUnassignedLines).map((line) => (
+                              <Typography key={line.key} sx={{ color: COLOR_TEXT, fontSize: '0.88rem' }}>
+                                {line.label} • {line.cantidad > 0 ? `${line.cantidad} uds` : 'Cantidad no definida'} • {formatCRC(line.subtotal)}
+                                {line.observacion ? ` (${line.observacion})` : ''}
+                              </Typography>
+                            ))}
                           </Stack>
                         ) : (
                           <Typography sx={{ color: COLOR_MUTED, fontSize: '0.86rem' }}>
