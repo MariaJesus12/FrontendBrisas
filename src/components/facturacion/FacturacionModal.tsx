@@ -1987,7 +1987,13 @@ export default function FacturacionModal({
 
     const selectedCurrency = getScopeCurrency(scopeKey)
     const amounts = getScopeAmounts(accountId)
-    const payableAmount = selectedCurrency === 'CRC' ? amounts.chargeCRC : Number(amounts.chargeUSD ?? 0)
+
+    // Cap the amount to the order's real remaining balance to avoid rounding drift across
+    // split accounts rejecting the last payment for "exceeding" the total.
+    const cappedCRC =
+      backendPendingCRC > MONEY_EPSILON ? Math.min(amounts.chargeCRC, backendPendingCRC) : amounts.chargeCRC
+    const cappedUSD = exchangeRate ? roundMoney(cappedCRC / exchangeRate) : null
+    const payableAmount = selectedCurrency === 'CRC' ? cappedCRC : Number(cappedUSD ?? 0)
 
     if (!Number.isFinite(payableAmount) || payableAmount <= 0) {
       toast.info('Esta cuenta no tiene saldo pendiente por cobrar.')
@@ -2017,7 +2023,7 @@ export default function FacturacionModal({
 
     const effectiveReceived = isCashMethod ? received : payableAmount
     const receivedInCRC = selectedCurrency === 'CRC' ? effectiveReceived : Number(exchangeRate ? effectiveReceived * exchangeRate : 0)
-    const changeCRC = isCashMethod ? Math.max(0, receivedInCRC - amounts.chargeCRC) : 0
+    const changeCRC = isCashMethod ? Math.max(0, receivedInCRC - cappedCRC) : 0
     const changeSelected = selectedCurrency === 'CRC' ? changeCRC : Number(exchangeRate ? changeCRC / exchangeRate : 0)
 
     const monedaId = resolveMonedaId(selectedCurrency)
@@ -2036,7 +2042,7 @@ export default function FacturacionModal({
         montoMoneda: payableAmount,
         moneda: selectedCurrency,
         monedaId,
-        montoColones: amounts.chargeCRC,
+        montoColones: cappedCRC,
         ...(isCashMethod
           ? {
               montoRecibido: effectiveReceived,
