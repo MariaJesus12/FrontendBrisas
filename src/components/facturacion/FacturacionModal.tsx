@@ -1611,6 +1611,12 @@ export default function FacturacionModal({
     openBillingScopes.reduce((sum, scope) => sum + getScopeAmounts(scope.accountId).pendingCRC, 0),
   )
 
+  // Cuando ya hay cuentas creadas, el saldo "sin asignar" NO se cobra como una cuenta más:
+  // queda pendiente de dividir para poder crear/asignar más cuentas. Solo se puede facturar
+  // cuando no queda nada sin asignar (todo ya está repartido en cuentas) y cada cuenta está pagada.
+  const hasUnassignedBalance = accounts.length > 0 && groupedUnassignedLines.length > 0
+  const canBillOrder = details.length > 0 && !hasUnassignedBalance && openBillingScopes.length === 0
+
   function resolveMonedaId(currency: 'CRC' | 'USD'): number | null {
     const normalizedCode = currency.toUpperCase()
     const byCode = monedas.find((item) => String(item.codigo ?? '').trim().toUpperCase() === normalizedCode)
@@ -2463,7 +2469,24 @@ export default function FacturacionModal({
                   <Chip label={`Cuentas pendientes: ${openBillingScopes.length}`} sx={{ color: COLOR_TEXT }} />
                   <Chip label={`Cuentas pagadas: ${closedBillingScopes.length}`} sx={{ color: COLOR_TEXT }} />
                   <Chip label={`Saldo pendiente total: ${formatCRC(pendingAcrossAccountsCRC)}`} sx={{ color: COLOR_TEXT }} />
+                  {accounts.length > 0 ? (
+                    <Chip label={`Sin asignar: ${formatCRC(unassignedSubtotal)}`} sx={{ color: COLOR_TEXT }} />
+                  ) : null}
                 </Stack>
+
+                {hasUnassignedBalance ? (
+                  <Alert severity="info">
+                    Los productos sin asignar no se cobran todavía. Dividilos en otra cuenta (creala con los productos
+                    seleccionados) o asignalos a una cuenta existente para poder facturar. Hasta que no quede nada sin
+                    asignar no se puede confirmar la factura.
+                  </Alert>
+                ) : null}
+
+                {accounts.length > 0 && !hasUnassignedBalance ? (
+                  <Alert severity="success">
+                    Todo está asignado a cuentas. Cuando cada cuenta esté pagada ya podés facturar.
+                  </Alert>
+                ) : null}
 
                 {[...openBillingScopes, ...closedBillingScopes].map((scope) => {
                   const scopeAmounts = getScopeAmounts(scope.accountId)
@@ -2694,14 +2717,20 @@ export default function FacturacionModal({
         <Button
           variant="contained"
           onClick={() => void handleFacturar()}
-          disabled={saving || !pedido || details.length === 0}
+          disabled={saving || !pedido || !canBillOrder}
           sx={{
             background: 'linear-gradient(135deg, #D4AF37 0%, #f2d36f 100%)',
             color: '#1a1208',
             fontWeight: 800,
           }}
         >
-          {saving ? 'Facturando...' : 'Confirmar y facturar'}
+          {saving
+            ? 'Facturando...'
+            : hasUnassignedBalance
+              ? 'Asigná todo para facturar'
+              : openBillingScopes.length > 0
+                ? 'Cobrá las cuentas pendientes'
+                : 'Confirmar y facturar'}
         </Button>
       </DialogActions>
     </Dialog>
