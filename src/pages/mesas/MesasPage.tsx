@@ -22,6 +22,8 @@ import {
   Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
+import AddCircleOutlineIcon from '@mui/icons-material/AddCircle'
+import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircle'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import RestaurantIcon from '@mui/icons-material/Restaurant'
@@ -666,6 +668,51 @@ export default function MesasPage() {
     precioUnitario: '0',
     observacion: '',
   })
+
+  // El pedido puede tener varias líneas físicas del mismo producto (una por cada envío a cocina);
+  // en el contenido de la mesa se muestran como una sola línea y lo que cambia es la cantidad.
+  const groupedPedidoDetails = useMemo(() => {
+    const groups = new Map<
+      string,
+      {
+        key: string
+        productName: string
+        observacion: string | undefined
+        precioUnitario: number | null
+        cantidad: number
+        subtotal: number
+        details: PedidoDetalle[]
+      }
+    >()
+
+    for (const detalle of currentPedidoDetails) {
+      const matchedProduct = products.find((product) => product.id === detalle.productoId)
+      const productName = detalle.producto?.nombre ?? detalle.productoNombre ?? matchedProduct?.nombre ?? 'Producto'
+      const observacion = detalle.observacion?.trim() || undefined
+      const key = `${detalle.productoId}|${observacion ?? ''}`
+      const cantidad = Number(detalle.cantidad ?? 0)
+      const subtotal = Number(detalle.subtotal ?? detalle.precioUnitario * detalle.cantidad) || 0
+
+      const existing = groups.get(key)
+      if (existing) {
+        existing.cantidad += Number.isFinite(cantidad) ? cantidad : 0
+        existing.subtotal += subtotal
+        existing.details.push(detalle)
+      } else {
+        groups.set(key, {
+          key,
+          productName,
+          observacion,
+          precioUnitario: Number.isFinite(Number(detalle.precioUnitario)) ? Number(detalle.precioUnitario) : null,
+          cantidad: Number.isFinite(cantidad) ? cantidad : 0,
+          subtotal,
+          details: [detalle],
+        })
+      }
+    }
+
+    return Array.from(groups.values())
+  }, [currentPedidoDetails, products])
 
   useEffect(() => {
     if (user?.id) {
@@ -1369,6 +1416,76 @@ export default function MesasPage() {
     }
   }
 
+  async function handleDeleteAllDetailsInGroup(details: PedidoDetalle[]) {
+    if (!selectedPedido || details.length === 0) {
+      return
+    }
+
+    const pedidoId = resolvePedidoId(details[0])
+    if (!pedidoId) {
+      toast.error('No se encontro un id de pedido valido para eliminar este producto.')
+      return
+    }
+
+    setSaving(true)
+    try {
+      for (const detail of details) {
+        await pedidosService.deleteDetail(pedidoId, detail.id)
+      }
+      toast.success('Producto eliminado del pedido.')
+      await loadMesaPedido(Number(selectedMesa?.id ?? selectedPedido.mesaId ?? 0))
+    } catch (requestError) {
+      const backendMessage =
+        axios.isAxiosError(requestError) && requestError.response
+          ? extractBackendMessage(requestError.response.data)
+          : ''
+      toast.error(backendMessage || 'No fue posible eliminar el producto del pedido.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleAdjustGroupQuantity(group: { details: PedidoDetalle[] }, direction: 'up' | 'down') {
+    if (!selectedPedido || group.details.length === 0) {
+      return
+    }
+
+    const baseDetail = group.details[0]
+    const pedidoId = resolvePedidoId(baseDetail)
+    if (!pedidoId) {
+      toast.error('No se encontro un id de pedido valido para ajustar la cantidad.')
+      return
+    }
+
+    const currentQty = Number(baseDetail.cantidad ?? 0)
+    const nextQty = direction === 'up' ? currentQty + 1 : currentQty - 1
+
+    setSaving(true)
+    try {
+      if (nextQty <= 0) {
+        // Al bajar de 1 a 0 se elimina esa línea física del producto.
+        await pedidosService.deleteDetail(pedidoId, baseDetail.id)
+      } else {
+        await pedidosService.updateDetail(pedidoId, baseDetail.id, {
+          productoId: baseDetail.productoId,
+          cantidad: nextQty,
+          precioUnitario: Number(baseDetail.precioUnitario ?? 0),
+          observacion: baseDetail.observacion?.trim() || undefined,
+        })
+      }
+
+      await loadMesaPedido(Number(selectedMesa?.id ?? selectedPedido.mesaId ?? 0))
+    } catch (requestError) {
+      const backendMessage =
+        axios.isAxiosError(requestError) && requestError.response
+          ? extractBackendMessage(requestError.response.data)
+          : ''
+      toast.error(backendMessage || 'No fue posible ajustar la cantidad.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <Box sx={{ color: COLOR_TEXT }}>
       <Paper
@@ -1809,16 +1926,13 @@ export default function MesasPage() {
 
                   <Stack spacing={1.25}>
                     <Typography sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Contenido actual</Typography>
-                    {currentPedidoDetails.length > 0 ? (
-                      currentPedidoDetails.map((detalle) => {
-                        const matchedProduct = products.find((product) => product.id === detalle.productoId)
-                        const productName =
-                          detalle.producto?.nombre ?? detalle.productoNombre ?? matchedProduct?.nombre ?? 'Producto'
-                        const subtotal = detalle.subtotal ?? detalle.precioUnitario * detalle.cantidad
+                    {groupedPedidoDetails.length > 0 ? (
+                      groupedPedidoDetails.map((group) => {
+                        const singleLine = group.details.length === 1 ? group.details[0] : null
 
                         return (
                           <Box
-                            key={detalle.id}
+                            key={group.key}
                             sx={{
                               display: 'flex',
                               justifyContent: 'space-between',
@@ -1830,35 +1944,68 @@ export default function MesasPage() {
                           >
                             <Stack spacing={0.45} sx={{ minWidth: 0 }}>
                               <Typography sx={{ fontWeight: 700, color: COLOR_TEXT }}>
-                                Producto: {productName}
+                                Producto: {group.productName}
                               </Typography>
                               <Typography sx={{ color: COLOR_MUTED, fontSize: '0.85rem' }}>
-                                Cantidad: {detalle.cantidad}
+                                Cantidad: {group.cantidad}
                               </Typography>
                               <Typography sx={{ color: COLOR_MUTED, fontSize: '0.85rem' }}>
-                                Observaciones: {detalle.observacion?.trim() || 'Sin observaciones'}
+                                Observaciones: {group.observacion ?? 'Sin observaciones'}
                               </Typography>
-                              <Typography sx={{ color: COLOR_MUTED, fontSize: '0.85rem' }}>
-                                Precio unitario: {formatCurrency(detalle.precioUnitario)}
-                              </Typography>
+                              {group.precioUnitario !== null ? (
+                                <Typography sx={{ color: COLOR_MUTED, fontSize: '0.85rem' }}>
+                                  Precio unitario: {formatCurrency(group.precioUnitario)}
+                                </Typography>
+                              ) : null}
                             </Stack>
 
                             <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                              <Typography sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Subtotal: {formatCurrency(subtotal)}</Typography>
-                              <IconButton
-                                size="small"
-                                onClick={() => openEditDetailDialog(detalle)}
-                                sx={getDrawerIconButtonSx('gold')}
-                              >
-                                <EditIcon fontSize="small" />
-                              </IconButton>
-                              <IconButton
-                                size="small"
-                                onClick={() => void handleDeleteCurrentDetail(detalle)}
-                                sx={getDrawerIconButtonSx('danger')}
-                              >
-                                <DeleteIcon fontSize="small" />
-                              </IconButton>
+                              <Typography sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Subtotal: {formatCurrency(group.subtotal)}</Typography>
+                              {singleLine ? (
+                                <>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => openEditDetailDialog(singleLine)}
+                                    sx={getDrawerIconButtonSx('gold')}
+                                  >
+                                    <EditIcon fontSize="small" />
+                                  </IconButton>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => void handleDeleteCurrentDetail(singleLine)}
+                                    sx={getDrawerIconButtonSx('danger')}
+                                  >
+                                    <DeleteIcon fontSize="small" />
+                                  </IconButton>
+                                </>
+                              ) : (
+                                <>
+                                  <IconButton
+                                    size="small"
+                                    title="Restar uno"
+                                    onClick={() => void handleAdjustGroupQuantity(group, 'down')}
+                                    sx={getDrawerIconButtonSx('gold')}
+                                  >
+                                    <RemoveCircleOutlineIcon fontSize="small" />
+                                  </IconButton>
+                                  <IconButton
+                                    size="small"
+                                    title="Sumar uno"
+                                    onClick={() => void handleAdjustGroupQuantity(group, 'up')}
+                                    sx={getDrawerIconButtonSx('gold')}
+                                  >
+                                    <AddCircleOutlineIcon fontSize="small" />
+                                  </IconButton>
+                                  <IconButton
+                                    size="small"
+                                    title="Eliminar producto"
+                                    onClick={() => void handleDeleteAllDetailsInGroup(group.details)}
+                                    sx={getDrawerIconButtonSx('danger')}
+                                  >
+                                    <DeleteIcon fontSize="small" />
+                                  </IconButton>
+                                </>
+                              )}
                             </Stack>
                           </Box>
                         )
