@@ -395,6 +395,18 @@ function buildDetailMovePayloadVariants(data?: MovePedidoAccountDetailDto) {
       cuentaDestinoId: targetAccountId,
     },
     {
+      cantidad: quantityValue,
+      toAccountId: targetAccountId,
+    },
+    {
+      cantidad: quantityValue,
+      cuenta_destino_id: targetAccountId,
+    },
+    {
+      cantidad: quantityValue,
+      to_account_id: targetAccountId,
+    },
+    {
       quantity: quantityValue,
       targetAccountId,
     },
@@ -402,11 +414,17 @@ function buildDetailMovePayloadVariants(data?: MovePedidoAccountDetailDto) {
       qty: quantityValue,
       target_account_id: targetAccountId,
     },
-    {
-      cantidad: quantityValue,
-      cuenta_destino_id: targetAccountId,
-    },
   ]
+}
+
+function resolveDetailIdCandidates(detailId: number, alternateDetailId?: number): number[] {
+  return Array.from(
+    new Set(
+      [detailId, alternateDetailId].filter(
+        (value): value is number => Number.isFinite(Number(value)) && Number(value) > 0,
+      ),
+    ),
+  )
 }
 
 async function removeAccountDetailWithFallback(
@@ -414,19 +432,31 @@ async function removeAccountDetailWithFallback(
   accountId: number,
   detailId: number,
   data?: MovePedidoAccountDetailDto,
+  alternateDetailId?: number,
 ) {
   const variants = buildDetailMovePayloadVariants(data)
+  const candidateIds = resolveDetailIdCandidates(detailId, alternateDetailId)
   let lastError: unknown
 
-  for (const payload of variants) {
-    try {
-      return await api.delete(`/pedidos/${pedidoId}/accounts/${accountId}/details/${detailId}`, {
-        data: payload,
-      })
-    } catch (error) {
-      lastError = error
-      if (!axios.isAxiosError(error) || !error.response || ![400, 422].includes(error.response.status)) {
-        throw error
+  for (const candidateId of candidateIds) {
+    for (const payload of variants) {
+      try {
+        return await api.delete(`/pedidos/${pedidoId}/accounts/${accountId}/details/${candidateId}`, {
+          data: payload,
+        })
+      } catch (error) {
+        lastError = error
+        if (!axios.isAxiosError(error) || !error.response) {
+          throw error
+        }
+
+        if (error.response.status === 404) {
+          break
+        }
+
+        if (![400, 422].includes(error.response.status)) {
+          throw error
+        }
       }
     }
   }
@@ -439,20 +469,32 @@ async function moveAccountDetailWithFallback(
   accountId: number,
   detailId: number,
   data?: MovePedidoAccountDetailDto,
+  alternateDetailId?: number,
 ) {
   const variants = buildDetailMovePayloadVariants(data)
+  const candidateIds = resolveDetailIdCandidates(detailId, alternateDetailId)
   let lastError: unknown
 
-  for (const payload of variants) {
-    try {
-      return await api.post<PedidoAccount>(
-        `/pedidos/${pedidoId}/accounts/${accountId}/details/${detailId}/move`,
-        payload,
-      )
-    } catch (error) {
-      lastError = error
-      if (!axios.isAxiosError(error) || !error.response || ![400, 422].includes(error.response.status)) {
-        throw error
+  for (const candidateId of candidateIds) {
+    for (const payload of variants) {
+      try {
+        return await api.post<PedidoAccount>(
+          `/pedidos/${pedidoId}/accounts/${accountId}/details/${candidateId}/move`,
+          payload,
+        )
+      } catch (error) {
+        lastError = error
+        if (!axios.isAxiosError(error) || !error.response) {
+          throw error
+        }
+
+        if (error.response.status === 404) {
+          break
+        }
+
+        if (![400, 422].includes(error.response.status)) {
+          throw error
+        }
       }
     }
   }
@@ -542,10 +584,10 @@ export const pedidosService = {
   createAccount: (id: number, data: CreatePedidoAccountDto) => createAccountWithFallback(id, data),
   addAccountDetail: (id: number, accountId: number, data: AddPedidoAccountDetailDto) =>
     addAccountDetailWithFallback(id, accountId, data),
-  removeAccountDetail: (id: number, accountId: number, detailId: number, data?: MovePedidoAccountDetailDto) =>
-    removeAccountDetailWithFallback(id, accountId, detailId, data),
-  moveAccountDetail: (id: number, accountId: number, detailId: number, data?: MovePedidoAccountDetailDto) =>
-    moveAccountDetailWithFallback(id, accountId, detailId, data),
+  removeAccountDetail: (id: number, accountId: number, detailId: number, data?: MovePedidoAccountDetailDto, alternateDetailId?: number) =>
+    removeAccountDetailWithFallback(id, accountId, detailId, data, alternateDetailId),
+  moveAccountDetail: (id: number, accountId: number, detailId: number, data?: MovePedidoAccountDetailDto, alternateDetailId?: number) =>
+    moveAccountDetailWithFallback(id, accountId, detailId, data, alternateDetailId),
   getPayments: (id: number) => api.get<PagoPedido[]>(`/pedidos/${id}/payments`),
   createPayment: (id: number, data: CreatePagoPedidoDto) => createPaymentWithFallback(id, data),
   updatePayment: (id: number, paymentId: number, data: Partial<CreatePagoPedidoDto>) =>

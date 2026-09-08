@@ -5,6 +5,9 @@ export interface BillingTicketLine {
   observacion?: string
 }
 
+// Cédula jurídica del restaurante impresa en todos los tickets de factura (mesa y llevar).
+export const BILLING_TICKET_CEDULA = '155800045026'
+
 export interface BillingTicketPayment {
   metodo: string
   monto: number
@@ -287,7 +290,7 @@ export function generateBillingTicketHtml(data: BillingTicketData): string {
       <div class="header">
         <div class="restaurant-name">${escapeHtml(data.restaurantName || 'Brisas del Lago')}</div>
         <div class="restaurant-sub">${escapeHtml(data.restaurantSub || 'Restaurante')}</div>
-        <div class="meta-info">Ced:${escapeHtml(data.cedula || '1-5580010047')}</div>
+        <div class="meta-info">Ced:${escapeHtml(data.cedula || BILLING_TICKET_CEDULA)}</div>
         <div class="meta-info">${escapeHtml(data.direccion || 'San Luis, Tilarán, Guanacaste')}</div>
         <div class="meta-info">Tel: ${escapeHtml(data.telefono || '26953363')}</div>
         <div class="meta-info">Fecha: ${formattedFechaHora}</div>

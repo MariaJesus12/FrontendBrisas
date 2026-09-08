@@ -61,7 +61,7 @@ import type {
   TipoPedido,
 } from '@/types/pedido.types'
 import { openKitchenPrintPreview } from '@/utils/kitchenPrint'
-import { printBillingTicket } from '@/utils/billingTicketPrint'
+import { printBillingTicket, BILLING_TICKET_CEDULA } from '@/utils/billingTicketPrint'
 import { normalizeRole } from '@/utils/roles'
 
 const COLOR_GOLD = '#D4AF37'
@@ -1990,7 +1990,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
         title: 'Reimpresión',
         pedidoId: printablePedido.id,
         codigoFactura: printablePedido.codigo ?? undefined,
-        cedula: '1-5580010047',
+        cedula: BILLING_TICKET_CEDULA,
         direccion: 'San Luis, Tilarán, Guanacaste',
         telefono: '26953363',
         items,

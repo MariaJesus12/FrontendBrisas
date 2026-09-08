@@ -27,7 +27,7 @@ import { monedasService, type Moneda } from '@/services/monedas.service'
 import { pedidosService } from '@/services/pedidos.service'
 import { tipoCambioService, type TipoCambio } from '@/services/tipo-cambio.service'
 import type { MetodoPago, PagoPedido, Pedido, PedidoAccount, PedidoAccountDetail, PedidoDetalle } from '@/types/pedido.types'
-import { printBillingTicket } from '@/utils/billingTicketPrint'
+import { BILLING_TICKET_CEDULA, printBillingTicket } from '@/utils/billingTicketPrint'
 
 interface FacturacionModalProps {
   open: boolean
@@ -583,7 +583,7 @@ function extractCreatedAccountId(payload: unknown): number | null {
   const visited = new WeakSet<object>()
 
   function visit(value: unknown, depth: number): number | null {
-    if (depth > 5) {
+    if (depth > 6) {
       return null
     }
 
@@ -607,15 +607,51 @@ function extractCreatedAccountId(payload: unknown): number | null {
     visited.add(value)
 
     const record = value as Record<string, unknown>
-    const directId = toPositiveInt(record.id ?? record.accountId ?? record.account_id)
+
+    // Priorizar objetos anidados que representen la cuenta antes de leer un id plano.
+    for (const key of ['cuenta', 'account', 'cuentaPedido', 'pedidoCuenta', 'cuenta_pedido', 'pedido_cuenta', 'nuevaCuenta', 'newAccount', 'created', 'data']) {
+      const nested = record[key]
+      if (typeof nested === 'object' && nested !== null) {
+        const found = visit(nested, depth + 1)
+        if (found) {
+          return found
+        }
+      }
+    }
+
+    const directId = toPositiveInt(
+      record.cuentaId ??
+        record.cuenta_id ??
+        record.accountId ??
+        record.account_id ??
+        record.pedidoCuentaId ??
+        record.pedido_cuenta_id ??
+        record.cuentaPedidoId ??
+        record.cuenta_pedido_id,
+    )
     if (directId) {
       return directId
     }
 
+    // Aceptar `id` plano solo cuando el objeto tiene pinta de cuenta (evita confundir el id del pedido).
+    const looksLikeAccount =
+      Array.isArray(record.detalles ?? record.details ?? record.items) ||
+      record.numeroCuenta !== undefined ||
+      record.numero_cuenta !== undefined ||
+      record.nombre !== undefined
+    if (looksLikeAccount) {
+      const bareId = toPositiveInt(record.id)
+      if (bareId) {
+        return bareId
+      }
+    }
+
     for (const nested of Object.values(record)) {
-      const found = visit(nested, depth + 1)
-      if (found) {
-        return found
+      if (typeof nested === 'object' && nested !== null) {
+        const found = visit(nested, depth + 1)
+        if (found) {
+          return found
+        }
       }
     }
 
@@ -623,6 +659,234 @@ function extractCreatedAccountId(payload: unknown): number | null {
   }
 
   return visit(payload, 0)
+}
+
+interface UnassignedPoolLine {
+  detailId: number
+  productoId: number | null
+  label: string
+  cantidad: number
+  precioUnitario: number
+  subtotal: number
+}
+
+function normalizeUnassignedPoolLine(item: unknown): UnassignedPoolLine | null {
+  if (typeof item !== 'object' || item === null) {
+    return null
+  }
+
+  const record = item as Record<string, unknown>
+  const nestedDetail =
+    typeof record.pedidoDetalle === 'object' && record.pedidoDetalle !== null
+      ? (record.pedidoDetalle as Record<string, unknown>)
+      : typeof record.detail === 'object' && record.detail !== null
+        ? (record.detail as Record<string, unknown>)
+        : null
+  const productoRecord =
+    typeof record.producto === 'object' && record.producto !== null
+      ? (record.producto as Record<string, unknown>)
+      : nestedDetail && typeof nestedDetail.producto === 'object' && nestedDetail.producto !== null
+        ? (nestedDetail.producto as Record<string, unknown>)
+        : null
+
+  const detailId = toPositiveInt(
+    record.detailId ??
+      record.detalleId ??
+      record.detail_id ??
+      record.detalle_id ??
+      record.pedidoDetalleId ??
+      record.pedido_detalle_id ??
+      nestedDetail?.id ??
+      nestedDetail?.detalle_id ??
+      record.id,
+  )
+
+  if (!detailId) {
+    return null
+  }
+
+  const cantidadValue = Number(record.cantidad ?? record.quantity ?? record.qty ?? nestedDetail?.cantidad ?? 0)
+  if (!Number.isFinite(cantidadValue) || cantidadValue <= 0) {
+    return null
+  }
+
+  const precioUnitarioValue = Number(
+    record.precioUnitario ??
+      record.precio_unitario ??
+      record.price ??
+      nestedDetail?.precioUnitario ??
+      nestedDetail?.precio_unitario ??
+      productoRecord?.precio ??
+      0,
+  )
+  const subtotalValue = Number(record.subtotal ?? nestedDetail?.subtotal ?? Number.NaN)
+
+  const labelCandidates: unknown[] = [record.productoNombre, record.nombreProducto, productoRecord?.nombre, record.nombre]
+  const label =
+    labelCandidates.find((value): value is string => typeof value === 'string' && value.trim().length > 0) ?? 'Producto'
+
+  return {
+    detailId,
+    productoId: toPositiveInt(
+      record.productoId ?? record.producto_id ?? record.product_id ?? nestedDetail?.productoId ?? nestedDetail?.producto_id ?? productoRecord?.id,
+    ),
+    label,
+    cantidad: roundMoney(cantidadValue),
+    precioUnitario: Number.isFinite(precioUnitarioValue) ? precioUnitarioValue : 0,
+    subtotal: roundMoney(
+      Number.isFinite(subtotalValue) && subtotalValue > 0
+        ? subtotalValue
+        : cantidadValue * (Number.isFinite(precioUnitarioValue) ? precioUnitarioValue : 0),
+    ),
+  }
+}
+
+function extractPoolLines(value: unknown): UnassignedPoolLine[] | null {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => normalizeUnassignedPoolLine(item))
+      .filter((item): item is UnassignedPoolLine => item !== null)
+  }
+
+  if (typeof value === 'object' && value !== null) {
+    const record = value as Record<string, unknown>
+    for (const key of ['detalles', 'details', 'items', 'productos', 'lineas', 'data']) {
+      const nested = record[key]
+      if (Array.isArray(nested)) {
+        return nested
+          .map((item) => normalizeUnassignedPoolLine(item))
+          .filter((item): item is UnassignedPoolLine => item !== null)
+      }
+    }
+  }
+
+  return null
+}
+
+function isUnassignedAccountRecord(item: unknown): boolean {
+  if (typeof item !== 'object' || item === null) {
+    return false
+  }
+
+  const record = item as Record<string, unknown>
+  const flags = [record.unassigned, record.esSinAsignar, record.sinAsignar, record.sin_asignar, record.isUnassigned]
+  if (flags.some((value) => value === true || value === 1 || String(value).trim().toLowerCase() === 'true')) {
+    return true
+  }
+
+  const label = String(record.nombre ?? record.tipo ?? record.numero ?? '').trim().toLowerCase()
+  if (label.includes('sin asignar') || label.includes('unassigned')) {
+    return true
+  }
+
+  const id = Number(record.id ?? record.accountId ?? record.account_id ?? record.cuentaId ?? record.cuenta_id ?? 0)
+  const hasDetails = Array.isArray(record.detalles ?? record.details ?? record.items ?? record.accountDetails)
+  return (!Number.isFinite(id) || id <= 0) && hasDetails
+}
+
+function findAccountsPayloadRoot(payload: unknown): unknown {
+  let current: unknown = payload
+
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (Array.isArray(current) || typeof current !== 'object' || current === null) {
+      return current
+    }
+
+    const record = current as Record<string, unknown>
+    const isRoot =
+      Array.isArray(record.cuentas) ||
+      Array.isArray(record.accounts) ||
+      record.unassigned !== undefined ||
+      record.sinAsignar !== undefined ||
+      record.sin_asignar !== undefined
+
+    if (isRoot) {
+      return current
+    }
+
+    const next = record.data ?? record.result ?? record.results ?? record.payload
+    if (next === undefined || next === current) {
+      return current
+    }
+
+    current = next
+  }
+
+  return current
+}
+
+// El backend devuelve las cuentas y el pool "sin asignar" (unassigned.detalles o cuentas[0].detalles).
+// Ese pool ya viene descontado automáticamente cada vez que se mueven cantidades a otra cuenta.
+function parseAccountsPayload(payload: unknown): { accounts: PedidoAccount[]; unassignedPool: UnassignedPoolLine[] | null } {
+  const root = findAccountsPayloadRoot(payload)
+
+  if (Array.isArray(root)) {
+    const accounts: PedidoAccount[] = []
+    let unassignedPool: UnassignedPoolLine[] | null = null
+
+    for (const item of root) {
+      if (isUnassignedAccountRecord(item)) {
+        const lines = extractPoolLines(item)
+        if (lines && !unassignedPool) {
+          unassignedPool = lines
+        }
+        continue
+      }
+
+      const normalized = normalizeAccount(item)
+      if (normalized) {
+        accounts.push(normalized)
+      }
+    }
+
+    return { accounts, unassignedPool }
+  }
+
+  if (typeof root === 'object' && root !== null) {
+    const record = root as Record<string, unknown>
+    let unassignedPool: UnassignedPoolLine[] | null = null
+
+    for (const key of ['unassigned', 'sinAsignar', 'sin_asignar', 'pendientes', 'pending', 'noAsignados']) {
+      if (record[key] !== undefined) {
+        unassignedPool = extractPoolLines(record[key]) ?? []
+        break
+      }
+    }
+
+    const rawAccounts = Array.isArray(record.cuentas)
+      ? record.cuentas
+      : Array.isArray(record.accounts)
+        ? record.accounts
+        : null
+
+    if (rawAccounts) {
+      const accounts: PedidoAccount[] = []
+
+      for (const item of rawAccounts) {
+        if (isUnassignedAccountRecord(item)) {
+          const lines = extractPoolLines(item)
+          if (lines && !unassignedPool) {
+            unassignedPool = lines
+          }
+          continue
+        }
+
+        const normalized = normalizeAccount(item)
+        if (normalized) {
+          accounts.push(normalized)
+        }
+      }
+
+      return { accounts, unassignedPool }
+    }
+
+    if (unassignedPool !== null) {
+      return { accounts: [], unassignedPool }
+    }
+  }
+
+  // Fallback legacy: respuesta plana sin pool sin asignar.
+  return { accounts: unwrapArrayPayload(payload, normalizeAccount), unassignedPool: null }
 }
 
 export default function FacturacionModal({
@@ -640,6 +904,7 @@ export default function FacturacionModal({
   const [pedido, setPedido] = useState<Pedido | null>(pedidoFallback)
   const [details, setDetails] = useState<PedidoDetalle[]>(detailsFallback)
   const [accounts, setAccounts] = useState<PedidoAccount[]>([])
+  const [unassignedPool, setUnassignedPool] = useState<UnassignedPoolLine[] | null>(null)
   const [payments, setPayments] = useState<PagoPedido[]>([])
   const [methods, setMethods] = useState<MetodoPago[]>(FALLBACK_PAYMENT_METHODS)
   const [monedas, setMonedas] = useState<Moneda[]>([])
@@ -663,6 +928,7 @@ export default function FacturacionModal({
     }
 
     setPaymentScopeById({})
+    setUnassignedPool(null)
     void loadData(pedidoId)
   }, [open, pedidoId])
 
@@ -711,7 +977,9 @@ export default function FacturacionModal({
       }
 
       if (accountsRes.status === 'fulfilled') {
-        setAccounts(unwrapArrayPayload(accountsRes.value.data, normalizeAccount))
+        const parsedAccounts = parseAccountsPayload(accountsRes.value.data)
+        setAccounts(parsedAccounts.accounts)
+        setUnassignedPool(parsedAccounts.unassignedPool)
       }
 
       if (paymentsRes.status === 'fulfilled') {
@@ -767,7 +1035,9 @@ export default function FacturacionModal({
     }
 
     if (accountsRes.status === 'fulfilled') {
-      setAccounts(unwrapArrayPayload(accountsRes.value.data, normalizeAccount))
+      const parsedAccounts = parseAccountsPayload(accountsRes.value.data)
+      setAccounts(parsedAccounts.accounts)
+      setUnassignedPool(parsedAccounts.unassignedPool)
     }
 
     if (paymentsRes.status === 'fulfilled') {
@@ -832,8 +1102,12 @@ export default function FacturacionModal({
   }, [accountSubtotalById, accounts])
 
   const unassignedSubtotal = useMemo(() => {
+    if (unassignedPool) {
+      return roundMoney(unassignedPool.reduce((sum, line) => sum + line.subtotal, 0))
+    }
+
     return Math.max(roundMoney(orderSubtotal - assignedSubtotal), 0)
-  }, [assignedSubtotal, orderSubtotal])
+  }, [assignedSubtotal, orderSubtotal, unassignedPool])
 
   const isMesaOrder = useMemo(() => String(pedido?.tipo ?? '').toUpperCase() === 'MESA', [pedido?.tipo])
 
@@ -914,9 +1188,21 @@ export default function FacturacionModal({
     return ids
   }, [accounts])
 
-  const unassignedDetails = useMemo(() => {
+  const unassignedDetails = useMemo<Array<{ detailId: number; productoId: number | undefined; label: string; cantidad: number; subtotal: number }>>(() => {
+    // Fuente autoritativa: pool "sin asignar" del backend (ya viene descontado tras cada movimiento).
+    if (unassignedPool) {
+      return unassignedPool.map((line) => ({
+        detailId: line.detailId,
+        productoId: line.productoId ?? detailsById.get(line.detailId)?.productoId,
+        label: line.label,
+        cantidad: line.cantidad,
+        subtotal: line.subtotal,
+      }))
+    }
+
+    // Fallback local: restar lo asignado a cuentas del detalle completo del pedido.
     return details
-      .map((detail) => {
+      .map((detail): { detailId: number; productoId: number | undefined; label: string; cantidad: number; subtotal: number } | null => {
         const assignedQty = assignedQuantityByDetailId.get(detail.id) ?? 0
         const detailQty = Number(detail.cantidad ?? 0)
         const unitPrice = Number(detail.precioUnitario ?? 0)
@@ -938,13 +1224,14 @@ export default function FacturacionModal({
 
         return {
           detailId: detail.id,
+          productoId: detail.productoId,
           label: detail.producto?.nombre ?? detail.productoNombre ?? 'Producto',
           cantidad: roundMoney(remainingQty),
           subtotal: subtotal > 0 ? roundMoney(subtotal) : roundMoney(fallbackSubtotal),
         }
       })
-      .filter((item): item is { detailId: number; label: string; cantidad: number; subtotal: number } => item !== null)
-  }, [assignedDetailIds, assignedQuantityByDetailId, details])
+      .filter((item): item is { detailId: number; productoId: number | undefined; label: string; cantidad: number; subtotal: number } => item !== null)
+  }, [assignedDetailIds, assignedQuantityByDetailId, details, detailsById, unassignedPool])
 
   function getScopeKey(accountId: number | null): string {
     return accountId ? `ACCOUNT:${accountId}` : ORDER_SCOPE_KEY
@@ -1246,35 +1533,48 @@ export default function FacturacionModal({
   }
 
   function buildSplitItemsFromSelection() {
-    const selectedDetailIds = Object.entries(splitSelectionByDetail)
+    const selectedEntries = Object.entries(splitSelectionByDetail)
       .filter(([, value]) => value.checked)
-      .map(([detailId]) => Number(detailId))
-      .filter((detailId) => Number.isFinite(detailId) && detailId > 0)
+      .map(([detailId, value]) => ({ detailId: Number(detailId), cantidadRaw: String(value.cantidad ?? '').trim() }))
+      .filter((entry) => Number.isFinite(entry.detailId) && entry.detailId > 0)
 
-    if (selectedDetailIds.length === 0) {
+    if (selectedEntries.length === 0) {
       return []
     }
 
     const items: Array<{ detailId?: number; productoId?: number; cantidad?: number }> = []
 
-    for (const detailId of selectedDetailIds) {
-      const detail = detailsById.get(detailId)
-      if (!detail) {
-        continue
-      }
+    for (const entry of selectedEntries) {
+      const available = unassignedDetails.find((item) => item.detailId === entry.detailId)
 
-      const selectedRow = splitSelectionByDetail[detailId]
-      const parsedQuantity = Number(selectedRow?.cantidad ?? '')
-      const maxCantidad = Number(detail.cantidad)
-      if (Number.isFinite(parsedQuantity) && parsedQuantity > 0 && Number.isFinite(maxCantidad) && maxCantidad > 0 && parsedQuantity > maxCantidad) {
-        toast.error(`La cantidad para ${detail.producto?.nombre ?? detail.productoNombre ?? 'producto'} no puede exceder ${maxCantidad}.`)
+      if (!available) {
+        toast.error('Uno de los productos seleccionados ya no tiene cantidad disponible para dividir.')
         return null
       }
 
+      let cantidad: number | undefined
+
+      if (entry.cantidadRaw) {
+        const parsed = Number(entry.cantidadRaw)
+        const normalized = Number.isFinite(parsed) ? Math.trunc(parsed) : Number.NaN
+
+        if (!Number.isFinite(normalized) || normalized <= 0) {
+          toast.error(`La cantidad para ${available.label} debe ser un entero mayor a 0.`)
+          return null
+        }
+
+        if (normalized > available.cantidad) {
+          toast.error(`La cantidad para ${available.label} no puede exceder ${available.cantidad} disponible(s).`)
+          return null
+        }
+
+        cantidad = normalized
+      }
+
       items.push({
-        detailId,
-        productoId: detail.productoId,
-        cantidad: Number.isFinite(parsedQuantity) && parsedQuantity > 0 ? parsedQuantity : undefined,
+        detailId: entry.detailId,
+        productoId: available.productoId ?? detailsById.get(entry.detailId)?.productoId,
+        cantidad,
       })
     }
 
@@ -1289,9 +1589,20 @@ export default function FacturacionModal({
     return `${accountId}:${accountDetailId}`
   }
 
-  function getOptionalPositiveNumber(rawValue: string): number | undefined {
-    const parsed = Number(rawValue)
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
+  function resolveOptionalQuantity(rawValue: string, label: string): number | null | undefined {
+    const trimmed = rawValue.trim()
+    if (!trimmed) {
+      return undefined
+    }
+
+    const parsed = Number(trimmed)
+    const normalized = Number.isFinite(parsed) ? Math.trunc(parsed) : Number.NaN
+    if (!Number.isFinite(normalized) || normalized <= 0) {
+      toast.error(`La cantidad para ${label} debe ser un entero mayor a 0.`)
+      return null
+    }
+
+    return normalized
   }
 
   async function handleCreateAccount() {
@@ -1305,37 +1616,42 @@ export default function FacturacionModal({
     }
 
     if (items.length === 0) {
-      toast.error('Selecciona al menos un producto para dividir la cuenta.')
+      toast.error('Selecciona al menos un producto pendiente para crear la cuenta dividida.')
       return
     }
 
     setSaving(true)
     try {
       const existingIds = new Set(accounts.map((account) => account.id))
+      // El backend permite crear la cuenta ya con productos en el mismo POST.
       const createResponse = await pedidosService.createAccount(pedidoId, {
         activo: true,
+        items,
       })
 
       let createdAccountId = extractCreatedAccountId(createResponse.data)
+      const refreshedAccountsResponse = await pedidosService.getAccounts(pedidoId)
+      const parsedAccounts = parseAccountsPayload(refreshedAccountsResponse.data)
+      setAccounts(parsedAccounts.accounts)
+      setUnassignedPool(parsedAccounts.unassignedPool)
+
       if (!createdAccountId) {
-        const refreshedAccountsResponse = await pedidosService.getAccounts(pedidoId)
-        const refreshedAccounts = unwrapArrayPayload(refreshedAccountsResponse.data, normalizeAccount)
-        setAccounts(refreshedAccounts)
-
-        const byNewId = refreshedAccounts.find((account) => !existingIds.has(account.id))
-        createdAccountId = byNewId?.id ?? null
+        createdAccountId = parsedAccounts.accounts.find((account) => !existingIds.has(account.id))?.id ?? null
       }
 
-      if (items.length > 0 && createdAccountId) {
-        await pedidosService.addAccountDetail(pedidoId, createdAccountId, { items })
-      }
-
-      if (items.length > 0 && !createdAccountId) {
-        toast.error('Cuenta creada, pero no se pudo identificar su ID para asignar productos automáticamente.')
+      if (!createdAccountId) {
+        toast.error('Cuenta creada, pero no se pudo identificar su ID para asignar los productos. Asignalos manualmente.')
+      } else {
+        // Si el backend ignoró los productos al crear, asignarlos con el endpoint de detalles.
+        const createdAccount = parsedAccounts.accounts.find((account) => account.id === createdAccountId)
+        const assignedQuantity = (createdAccount?.detalles ?? []).reduce((sum, detail) => sum + Number(detail.cantidad ?? 0), 0)
+        if (assignedQuantity <= 0) {
+          await pedidosService.addAccountDetail(pedidoId, createdAccountId, { items })
+        }
+        toast.success('Cuenta creada y productos asignados.')
       }
 
       clearSplitSelection()
-      toast.success(items.length > 0 ? 'Cuenta creada y productos divididos.' : 'Cuenta creada.')
       await reloadAccountsAndPayments()
       if (createdAccountId) {
         setSelectedAccountId(String(createdAccountId))
@@ -1385,12 +1701,18 @@ export default function FacturacionModal({
     }
   }
 
-  async function handleMoveAccountDetail(accountId: number, accountDetailId: number) {
+  async function handleMoveAccountDetail(accountId: number, accountDetail: PedidoAccountDetail) {
     if (!pedidoId) {
       return
     }
 
-    const key = getDetailMoveKey(accountId, accountDetailId)
+    const sourceDetailId = toPositiveInt(accountDetail.detailId ?? accountDetail.pedidoDetalleId)
+    const primaryDetailId = sourceDetailId ?? accountDetail.id
+    const alternateDetailId = accountDetail.id !== primaryDetailId ? accountDetail.id : undefined
+    const source = sourceDetailId ? detailsById.get(sourceDetailId) : null
+    const label = source?.producto?.nombre ?? source?.productoNombre ?? accountDetail.productoNombre ?? 'producto'
+
+    const key = getDetailMoveKey(accountId, accountDetail.id)
     const targetRaw = detailMoveTarget[key] ?? ''
     const targetAccountId = toPositiveInt(targetRaw)
     if (!targetAccountId) {
@@ -1403,14 +1725,23 @@ export default function FacturacionModal({
       return
     }
 
-    const cantidad = getOptionalPositiveNumber(detailMoveQty[key] ?? '')
+    const cantidad = resolveOptionalQuantity(detailMoveQty[key] ?? '', label)
+    if (cantidad === null) {
+      return
+    }
+
+    const lineCantidad = Number(accountDetail.cantidad ?? 0)
+    if (cantidad !== undefined && Number.isFinite(lineCantidad) && lineCantidad > 0 && cantidad > lineCantidad) {
+      toast.error(`La cantidad a mover de ${label} no puede exceder ${lineCantidad}.`)
+      return
+    }
 
     setSaving(true)
     try {
-      await pedidosService.moveAccountDetail(pedidoId, accountId, accountDetailId, {
+      await pedidosService.moveAccountDetail(pedidoId, accountId, primaryDetailId, {
         cantidad,
         cuentaDestinoId: targetAccountId,
-      })
+      }, alternateDetailId)
       toast.success('Producto movido a la cuenta destino.')
       await reloadAccountsAndPayments()
       setDetailMoveQty((current) => ({ ...current, [key]: '' }))
@@ -1426,20 +1757,34 @@ export default function FacturacionModal({
     }
   }
 
-  async function handleReturnAccountDetail(accountId: number, accountDetailId: number) {
+  async function handleReturnAccountDetail(accountId: number, accountDetail: PedidoAccountDetail) {
     if (!pedidoId) {
       return
     }
 
-    const key = getDetailMoveKey(accountId, accountDetailId)
-    const cantidad = getOptionalPositiveNumber(detailMoveQty[key] ?? '')
+    const sourceDetailId = toPositiveInt(accountDetail.detailId ?? accountDetail.pedidoDetalleId)
+    const primaryDetailId = sourceDetailId ?? accountDetail.id
+    const alternateDetailId = accountDetail.id !== primaryDetailId ? accountDetail.id : undefined
+    const source = sourceDetailId ? detailsById.get(sourceDetailId) : null
+    const label = source?.producto?.nombre ?? source?.productoNombre ?? accountDetail.productoNombre ?? 'producto'
+
+    const key = getDetailMoveKey(accountId, accountDetail.id)
+    const cantidad = resolveOptionalQuantity(detailMoveQty[key] ?? '', label)
+    if (cantidad === null) {
+      return
+    }
+
+    const lineCantidad = Number(accountDetail.cantidad ?? 0)
+    if (cantidad !== undefined && Number.isFinite(lineCantidad) && lineCantidad > 0 && cantidad > lineCantidad) {
+      toast.error(`La cantidad a devolver de ${label} no puede exceder ${lineCantidad}.`)
+      return
+    }
 
     setSaving(true)
     try {
-      await pedidosService.moveAccountDetail(pedidoId, accountId, accountDetailId, {
-        cantidad,
-      })
-      toast.success('Producto devuelto a no asignado.')
+      // DELETE devuelve la cantidad al pool sin asignar (cuentaPedidoId = null), fusionando líneas del mismo producto.
+      await pedidosService.removeAccountDetail(pedidoId, accountId, primaryDetailId, { cantidad }, alternateDetailId)
+      toast.success('Producto devuelto a sin asignar.')
       await reloadAccountsAndPayments()
       setDetailMoveQty((current) => ({ ...current, [key]: '' }))
       setDetailMoveTarget((current) => ({ ...current, [key]: '' }))
@@ -1673,7 +2018,7 @@ export default function FacturacionModal({
       title,
       pedidoId: pedido?.id ?? pedidoId ?? undefined,
       codigoFactura: pedido?.codigo ?? undefined,
-      cedula: '155800045026',
+      cedula: BILLING_TICKET_CEDULA,
       direccion: 'San Luis, Tilarán, Guanacaste',
       telefono: '26953363',
       items,
@@ -1758,70 +2103,82 @@ export default function FacturacionModal({
                   <Button
                     variant="outlined"
                     onClick={() => void handleCreateAccount()}
-                    disabled={saving}
+                    disabled={saving || Object.values(splitSelectionByDetail).every((entry) => !entry.checked)}
                     sx={{ color: COLOR_GOLD, borderColor: 'rgba(212,175,55,0.35)' }}
                   >
                     Crear cuenta
                   </Button>
                 </Stack>
 
+                <Typography sx={{ color: COLOR_MUTED, fontSize: '0.8rem' }}>
+                  Selecciona al menos un producto pendiente: la cuenta nueva se crea con esos productos ya asignados.
+                </Typography>
+
                 <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
                   <Paper sx={{ p: 1.25, width: '100%', backgroundColor: 'rgba(0,0,0,0.2)' }}>
                     <Stack spacing={1}>
-                      <Typography sx={{ color: COLOR_TEXT, fontWeight: 700 }}>Selecciona productos para dividir</Typography>
-                      {details.map((detail) => {
-                        const detailSubtotal = detail.subtotal ?? detail.precioUnitario * detail.cantidad
-                        const selected = splitSelectionByDetail[detail.id] ?? { checked: false, cantidad: '' }
-                        return (
-                          <Stack key={detail.id} direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ alignItems: { md: 'center' } }}>
-                            <FormControlLabel
-                              sx={{ flex: 1, m: 0 }}
-                              control={
-                                <Checkbox
-                                  checked={selected.checked}
-                                  onChange={(event) =>
-                                    setSplitSelectionByDetail((current) => ({
-                                      ...current,
-                                      [detail.id]: {
-                                        checked: event.target.checked,
-                                        cantidad: current[detail.id]?.cantidad ?? '',
-                                      },
-                                    }))
-                                  }
-                                  sx={{ color: COLOR_GOLD, '&.Mui-checked': { color: COLOR_GOLD } }}
-                                />
-                              }
-                              label={
-                                <Typography sx={{ color: COLOR_TEXT }}>
-                                  {detail.producto?.nombre ?? detail.productoNombre ?? 'Producto'} • {detail.cantidad} • {formatCRC(detailSubtotal)}
-                                </Typography>
-                              }
-                            />
+                      <Typography sx={{ color: COLOR_TEXT, fontWeight: 700 }}>Productos pendientes de dividir</Typography>
+                      {unassignedDetails.length === 0 ? (
+                        <Typography sx={{ color: COLOR_MUTED, fontSize: '0.86rem' }}>
+                          {accounts.length > 0
+                            ? 'Todos los productos ya están asignados a una cuenta.'
+                            : 'Este pedido no tiene productos pendientes de dividir.'}
+                        </Typography>
+                      ) : (
+                        unassignedDetails.map((row) => {
+                          const selected = splitSelectionByDetail[row.detailId] ?? { checked: false, cantidad: '' }
+                          return (
+                            <Stack key={row.detailId} direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ alignItems: { md: 'center' } }}>
+                              <FormControlLabel
+                                sx={{ flex: 1, m: 0 }}
+                                control={
+                                  <Checkbox
+                                    checked={selected.checked}
+                                    onChange={(event) =>
+                                      setSplitSelectionByDetail((current) => ({
+                                        ...current,
+                                        [row.detailId]: {
+                                          checked: event.target.checked,
+                                          cantidad: current[row.detailId]?.cantidad ?? '',
+                                        },
+                                      }))
+                                    }
+                                    sx={{ color: COLOR_GOLD, '&.Mui-checked': { color: COLOR_GOLD } }}
+                                  />
+                                }
+                                label={
+                                  <Typography sx={{ color: COLOR_TEXT }}>
+                                    {row.label} • Disponible: {row.cantidad} • {formatCRC(row.subtotal)}
+                                  </Typography>
+                                }
+                              />
 
-                            <TextField
-                              label="Cantidad"
-                              type="number"
-                              value={selected.cantidad}
-                              onChange={(event) =>
-                                setSplitSelectionByDetail((current) => ({
-                                  ...current,
-                                  [detail.id]: {
-                                    checked: current[detail.id]?.checked ?? false,
-                                    cantidad: event.target.value,
-                                  },
-                                }))
-                              }
-                              helperText="Vacío = todo"
-                              sx={{
-                                width: { xs: '100%', md: 140 },
-                                '& .MuiFormHelperText-root': { color: COLOR_MUTED },
-                                '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
-                                '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
-                              }}
-                            />
-                          </Stack>
-                        )
-                      })}
+                              <TextField
+                                label="Cantidad"
+                                type="number"
+                                value={selected.cantidad}
+                                onChange={(event) =>
+                                  setSplitSelectionByDetail((current) => ({
+                                    ...current,
+                                    [row.detailId]: {
+                                      checked: current[row.detailId]?.checked ?? false,
+                                      cantidad: event.target.value,
+                                    },
+                                  }))
+                                }
+                                slotProps={{ htmlInput: { min: 1, step: 1 } }}
+                                helperText={`Vacío = todo (máx ${row.cantidad})`}
+                                sx={{
+                                  width: { xs: '100%', md: 180 },
+                                  '& .MuiFormHelperText-root': { color: COLOR_MUTED },
+                                  '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                                  '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                                }}
+                              />
+                            </Stack>
+                          )
+                        })
+                      )}
                     </Stack>
                   </Paper>
                 </Stack>
@@ -1833,6 +2190,7 @@ export default function FacturacionModal({
                     disabled={
                       saving ||
                       !selectedAccountId ||
+                      unassignedDetails.length === 0 ||
                       Object.values(splitSelectionByDetail).every((entry) => !entry.checked)
                     }
                     sx={{ color: COLOR_TEXT, borderColor: 'rgba(243,233,210,0.35)' }}
@@ -1848,6 +2206,10 @@ export default function FacturacionModal({
                     Limpiar seleccion
                   </Button>
                 </Stack>
+
+                {accounts.length > 0 && unassignedDetails.length === 0 ? (
+                  <Alert severity="success">Cuenta completamente dividida: no quedan productos sin asignar.</Alert>
+                ) : null}
 
                 {accounts.map((account) => (
                   <Paper key={account.id} sx={{ p: 1.25, backgroundColor: 'rgba(0,0,0,0.25)' }}>
@@ -1872,7 +2234,7 @@ export default function FacturacionModal({
                               sx={{ p: 1, borderRadius: 1, backgroundColor: 'rgba(255,255,255,0.03)' }}
                             >
                               <Typography sx={{ color: COLOR_TEXT }}>
-                                {label} • {formatCRC(Number(amount) || 0)}
+                                {label} • {Number(detail.cantidad ?? source?.cantidad ?? 0)} uds • {formatCRC(Number(amount) || 0)}
                               </Typography>
 
                               <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
@@ -1883,7 +2245,8 @@ export default function FacturacionModal({
                                   onChange={(event) =>
                                     setDetailMoveQty((current) => ({ ...current, [rowKey]: event.target.value }))
                                   }
-                                  helperText="Vacío = todo"
+                                  slotProps={{ htmlInput: { min: 1, step: 1 } }}
+                                  helperText={`Vacío = todo (máx ${Number(detail.cantidad ?? source?.cantidad ?? 0)})`}
                                   sx={{
                                     width: { xs: '100%', md: 130 },
                                     '& .MuiFormHelperText-root': { color: COLOR_MUTED },
@@ -1919,7 +2282,7 @@ export default function FacturacionModal({
                                   <Button
                                     size="small"
                                     variant="outlined"
-                                    onClick={() => void handleMoveAccountDetail(account.id, detail.id)}
+                                    onClick={() => void handleMoveAccountDetail(account.id, detail)}
                                     sx={{ color: COLOR_GOLD, borderColor: 'rgba(212,175,55,0.35)' }}
                                   >
                                     Mover
@@ -1927,7 +2290,7 @@ export default function FacturacionModal({
                                   <Button
                                     size="small"
                                     sx={{ color: '#f4a8b2' }}
-                                    onClick={() => void handleReturnAccountDetail(account.id, detail.id)}
+                                    onClick={() => void handleReturnAccountDetail(account.id, detail)}
                                   >
                                     Devolver
                                   </Button>
