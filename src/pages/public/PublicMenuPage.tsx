@@ -1674,8 +1674,8 @@ export default function PublicMenuPage() {
                           key={item.id}
                           sx={{
                             display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'flex-start',
+                            flexDirection: 'column',
+                            alignItems: 'center',
                             gap: 2,
                             p: 1.2,
                             borderRadius: 1.5,
@@ -1683,7 +1683,7 @@ export default function PublicMenuPage() {
                             backgroundColor: 'rgba(212,175,55,0.04)',
                           }}
                         >
-                          <Box>
+                          <Box sx={{ width: '100%', textAlign: 'center' }}>
                             <Typography sx={{ fontFamily: '"Playfair Display", serif', fontSize: '1.1rem' }}>
                               {item.nombre}
                             </Typography>
@@ -1705,6 +1705,7 @@ export default function PublicMenuPage() {
                               fontFamily: '"Playfair Display", serif',
                               fontSize: '1.2rem',
                               whiteSpace: 'nowrap',
+                              textAlign: 'center',
                             }}
                           >
                             {formatCRC(item.precio)}
@@ -1726,8 +1727,8 @@ export default function PublicMenuPage() {
                           key={item.id}
                           sx={{
                             display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'flex-start',
+                            flexDirection: 'column',
+                            alignItems: 'center',
                             gap: 2,
                             p: 1.2,
                             borderRadius: 1.5,
@@ -1735,7 +1736,7 @@ export default function PublicMenuPage() {
                             backgroundColor: 'rgba(212,175,55,0.04)',
                           }}
                         >
-                          <Box>
+                          <Box sx={{ width: '100%', textAlign: 'center' }}>
                             <Typography sx={{ fontFamily: '"Playfair Display", serif', fontSize: '1.1rem' }}>
                               {item.nombre}
                             </Typography>
@@ -1757,6 +1758,7 @@ export default function PublicMenuPage() {
                               fontFamily: '"Playfair Display", serif',
                               fontSize: '1.2rem',
                               whiteSpace: 'nowrap',
+                              textAlign: 'center',
                             }}
                           >
                             {formatCRC(item.precio)}
