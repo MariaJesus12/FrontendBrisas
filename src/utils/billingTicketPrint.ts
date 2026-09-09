@@ -91,11 +91,8 @@ export function generateBillingTicketHtml(data: BillingTicketData): string {
           .map((item) => {
             const qty = Number(item.cantidad) > 0 ? Number(item.cantidad) : 1
             const priceStr = formatTicketAmount(item.precio)
-            const note = item.observacion?.trim()
-              ? `<div class="product-note">Obs: ${escapeHtml(item.observacion.trim())}</div>`
-              : ''
 
-            return `<div class="product-row"><span class="col-qty">${qty}</span><span class="col-desc">${escapeHtml(item.descripcion)}</span><span class="col-price">${priceStr}</span>${note}</div>`
+            return `<div class="product-row"><span class="col-qty">${qty}</span><span class="col-desc">${escapeHtml(item.descripcion)}</span><span class="col-price">${priceStr}</span></div>`
           })
           .join('')
       : '<div class="empty-row">Sin productos</div>'
@@ -232,14 +229,6 @@ export function generateBillingTicketHtml(data: BillingTicketData): string {
       .col-price {
         text-align: right;
         white-space: nowrap;
-      }
-      .product-note {
-        grid-column: 2 / span 2;
-        font-size: 10px;
-        color: #4b5563;
-        margin-top: 1px;
-        white-space: pre-wrap;
-        word-break: break-word;
       }
       .empty-row {
         text-align: center;
