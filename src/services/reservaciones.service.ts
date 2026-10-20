@@ -17,6 +17,7 @@ export const reservacionesService = {
       },
     }),
   getAll: (query?: ReservacionListQuery) => api.get<Reservacion[]>('/reservas', { params: query }),
+  getPendientes: () => api.get<Reservacion[]>('/reservas/pendientes'),
   getById: (id: number) => api.get<Reservacion>(`/reservas/${id}`),
   create: (data: CreateReservacionDto) => api.post<Reservacion>('/reservas', data),
   update: (id: number, data: UpdateReservacionDto) => api.put<Reservacion>(`/reservas/${id}`, data),

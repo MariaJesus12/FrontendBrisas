@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import axios from 'axios'
 import {
   Alert,
@@ -441,6 +441,9 @@ function buildInitialForm(): ReservacionFormState {
 
 export default function ReservacionesPage() {
   const [agendaReservas, setAgendaReservas] = useState<Reservacion[]>([])
+  const [pendientes, setPendientes] = useState<Reservacion[]>([])
+  const [loadingPendientes, setLoadingPendientes] = useState<boolean>(false)
+  const [pendientesError, setPendientesError] = useState<string>('')
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [agendaDate, setAgendaDate] = useState<string>('')
   const [agendaEstado, setAgendaEstado] = useState<string>('')
@@ -506,6 +509,35 @@ export default function ReservacionesPage() {
   useEffect(() => {
     void loadAgenda()
   }, [agendaDate, agendaEstado])
+
+  async function loadPendientes() {
+    setLoadingPendientes(true)
+    setPendientesError('')
+    try {
+      const response = await reservacionesService.getPendientes()
+      const normalized = unwrapArrayPayload(response.data)
+        .map((item) => normalizeReservacionRecord(item))
+        .filter((item): item is Reservacion => item !== null)
+
+      setPendientes(normalized)
+    } catch (requestError) {
+      const backendMessage =
+        axios.isAxiosError(requestError) && requestError.response
+          ? extractBackendMessage(requestError.response.data)
+          : ''
+      setPendientesError(backendMessage || 'No fue posible cargar las reservas pendientes.')
+    } finally {
+      setLoadingPendientes(false)
+    }
+  }
+
+  async function reloadAll() {
+    await Promise.all([loadAgenda(), loadPendientes()])
+  }
+
+  useEffect(() => {
+    void loadPendientes()
+  }, [])
 
   useEffect(() => {
     void loadClientesBase()
@@ -803,7 +835,7 @@ export default function ReservacionesPage() {
       }
 
       setDialogOpen(false)
-      await loadAgenda()
+      await reloadAll()
     } catch (requestError) {
       const backendMessage =
         axios.isAxiosError(requestError) && requestError.response
@@ -837,7 +869,7 @@ export default function ReservacionesPage() {
       toast.success('Estado de reserva actualizado.')
       setEstadoDialogOpen(false)
       setEstadoTargetReserva(null)
-      await loadAgenda()
+      await reloadAll()
     } catch (requestError) {
       const backendMessage =
         axios.isAxiosError(requestError) && requestError.response
@@ -852,6 +884,86 @@ export default function ReservacionesPage() {
     } finally {
       setSaving(false)
     }
+  }
+
+  function renderReservasTable(reservas: Reservacion[], emptyMessage: string) {
+    return (
+      <TableContainer>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Cliente</TableCell>
+              <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Fecha/Hora</TableCell>
+              <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Personas</TableCell>
+              <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Observaciones</TableCell>
+              <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Estado</TableCell>
+              <TableCell align="right" sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Acciones</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {reservas.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} sx={{ color: 'rgba(243,233,210,0.75)' }}>
+                  {emptyMessage}
+                </TableCell>
+              </TableRow>
+            ) : (
+              reservas.map((reserva) => (
+                <TableRow key={reserva.id} hover>
+                  <TableCell sx={{ color: COLOR_TEXT }}>
+                    <Typography sx={{ fontWeight: 600 }}>
+                      {reserva.clienteNombre ?? reserva.nombreCliente ?? 'Cliente'}
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: 'rgba(243,233,210,0.75)' }}>
+                      {reserva.clienteTelefono ?? reserva.telefono ?? 'Sin teléfono'}
+                    </Typography>
+                  </TableCell>
+                  <TableCell sx={{ color: COLOR_TEXT }}>{formatDateTime(reserva.fechaHora)}</TableCell>
+                  <TableCell sx={{ color: COLOR_TEXT }}>{reserva.cantidadPersonas}</TableCell>
+                  <TableCell sx={{ color: COLOR_MUTED, maxWidth: 260, whiteSpace: 'pre-line' }}>
+                    {reserva.observaciones ?? reserva.notas ?? 'Sin observaciones'}
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      size="small"
+                      label={formatEstadoLabel(reserva.estado)}
+                      sx={{
+                        bgcolor:
+                          normalizeReservaEstado(reserva.estado) === 'CONFIRMADA'
+                            ? 'rgba(16,185,129,0.9)'
+                            : normalizeReservaEstado(reserva.estado) === 'CANCELADA'
+                              ? 'rgba(143,29,46,0.9)'
+                              : 'rgba(212,175,55,0.85)',
+                        color: '#111',
+                        fontWeight: 700,
+                      }}
+                    />
+                  </TableCell>
+                  <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                    <IconButton
+                      onClick={() => {
+                        void openEditDialog(reserva.id)
+                      }}
+                      sx={{ color: 'rgba(243,233,210,0.9)' }}
+                    >
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => openEstadoDialog(reserva)}
+                      sx={{ borderColor: 'rgba(212,175,55,0.45)', color: COLOR_GOLD }}
+                    >
+                      Estado
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    )
   }
 
   return (
@@ -871,7 +983,7 @@ export default function ReservacionesPage() {
             variant="outlined"
             startIcon={<RefreshIcon />}
             onClick={() => {
-              void loadAgenda()
+              void reloadAll()
             }}
             sx={{
               borderColor: 'rgba(212,175,55,0.5)',
@@ -905,6 +1017,41 @@ export default function ReservacionesPage() {
         <Typography sx={{ color: 'rgba(243,233,210,0.88)' }}>
           Registra reservas por cliente, fecha y hora. La asignación de mesa se decide directamente en el salón al recibir a los clientes.
         </Typography>
+      </Paper>
+
+      <Paper
+        sx={{
+          p: 2.5,
+          mb: 3,
+          borderRadius: 2,
+          backgroundColor: 'rgba(10,10,10,0.72)',
+          border: '1px solid rgba(212,175,55,0.6)',
+        }}
+      >
+        <Stack direction="row" spacing={1.5} sx={{ mb: 2, alignItems: 'center' }}>
+          <Typography variant="h6" sx={{ color: COLOR_GOLD, fontWeight: 700 }}>
+            Reservas pendientes
+          </Typography>
+          <Chip
+            size="small"
+            label={pendientes.length}
+            sx={{ bgcolor: 'rgba(212,175,55,0.85)', color: '#111', fontWeight: 700 }}
+          />
+        </Stack>
+
+        {pendientesError ? (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {pendientesError}
+          </Alert>
+        ) : null}
+
+        {loadingPendientes ? (
+          <Stack direction="row" sx={{ justifyContent: 'center', py: 3 }}>
+            <CircularProgress sx={{ color: COLOR_GOLD }} />
+          </Stack>
+        ) : (
+          renderReservasTable(pendientes, 'No hay reservas pendientes.')
+        )}
       </Paper>
 
       <Paper
@@ -977,81 +1124,7 @@ export default function ReservacionesPage() {
             <CircularProgress sx={{ color: COLOR_GOLD }} />
           </Stack>
         ) : (
-          <TableContainer>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Cliente</TableCell>
-                  <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Fecha/Hora</TableCell>
-                  <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Personas</TableCell>
-                  <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Observaciones</TableCell>
-                  <TableCell sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Estado</TableCell>
-                  <TableCell align="right" sx={{ color: COLOR_GOLD, fontWeight: 700 }}>Acciones</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {agendaReservas.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} sx={{ color: 'rgba(243,233,210,0.75)' }}>
-                      No hay reservas para los filtros seleccionados.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  agendaReservas.map((reserva) => (
-                    <TableRow key={reserva.id} hover>
-                      <TableCell sx={{ color: COLOR_TEXT }}>
-                        <Typography sx={{ fontWeight: 600 }}>
-                          {reserva.clienteNombre ?? reserva.nombreCliente ?? 'Cliente'}
-                        </Typography>
-                        <Typography variant="caption" sx={{ color: 'rgba(243,233,210,0.75)' }}>
-                          {reserva.clienteTelefono ?? reserva.telefono ?? 'Sin teléfono'}
-                        </Typography>
-                      </TableCell>
-                      <TableCell sx={{ color: COLOR_TEXT }}>{formatDateTime(reserva.fechaHora)}</TableCell>
-                      <TableCell sx={{ color: COLOR_TEXT }}>{reserva.cantidadPersonas}</TableCell>
-                      <TableCell sx={{ color: COLOR_MUTED, maxWidth: 260, whiteSpace: 'pre-line' }}>
-                        {reserva.observaciones ?? reserva.notas ?? 'Sin observaciones'}
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          size="small"
-                          label={formatEstadoLabel(reserva.estado)}
-                          sx={{
-                            bgcolor:
-                              normalizeReservaEstado(reserva.estado) === 'CONFIRMADA'
-                                ? 'rgba(16,185,129,0.9)'
-                                : normalizeReservaEstado(reserva.estado) === 'CANCELADA'
-                                  ? 'rgba(143,29,46,0.9)'
-                                  : 'rgba(212,175,55,0.85)',
-                            color: '#111',
-                            fontWeight: 700,
-                          }}
-                        />
-                      </TableCell>
-                      <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
-                        <IconButton
-                          onClick={() => {
-                            void openEditDialog(reserva.id)
-                          }}
-                          sx={{ color: 'rgba(243,233,210,0.9)' }}
-                        >
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          onClick={() => openEstadoDialog(reserva)}
-                          sx={{ borderColor: 'rgba(212,175,55,0.45)', color: COLOR_GOLD }}
-                        >
-                          Estado
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
+          renderReservasTable(agendaReservas, 'No hay reservas para los filtros seleccionados.')
         )}
       </Paper>
 
