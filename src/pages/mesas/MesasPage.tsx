@@ -103,6 +103,7 @@ const initialPedidoForm: PedidoMesaFormState = {
 }
 
 const OPEN_ORDER_STATES = ['BORRADOR', 'EN_PREPARACION', 'COCINA', 'LISTO']
+const CLOSED_ORDER_STATES = ['FACTURADO', 'CANCELADO', 'CANCELADA', 'ANULADO', 'PAGADO', 'CERRADO']
 
 function normalizePedidoEstado(value: unknown): string {
   return String(value ?? '').trim().toUpperCase()
@@ -661,6 +662,8 @@ export default function MesasPage() {
   const [pedidoLoading, setPedidoLoading] = useState(false)
   const [changeMesaOpen, setChangeMesaOpen] = useState(false)
   const [newMesaId, setNewMesaId] = useState('')
+  const [changeMesaBlocked, setChangeMesaBlocked] = useState<Record<number, string>>({})
+  const [changeMesaLoading, setChangeMesaLoading] = useState(false)
   const [pedidoForm, setPedidoForm] = useState<PedidoMesaFormState>(initialPedidoForm)
   const [invoicePreviewOpen, setInvoicePreviewOpen] = useState(false)
   const [invoicePreviewPedido, setInvoicePreviewPedido] = useState<Pedido | null>(null)
@@ -1319,13 +1322,41 @@ export default function MesasPage() {
     }
   }
 
-  const mesasDisponiblesParaCambio = mesas.filter(
-    (mesa) => mesa.activa && mesa.id !== selectedMesa?.id && !openPedidosByMesa[mesa.id],
-  )
+  const mesasParaCambio = mesas
+    .filter((mesa) => mesa.activa && mesa.id !== selectedMesa?.id)
+    .sort((left, right) => left.numero - right.numero)
+  const mesasLibresParaCambio = mesasParaCambio.filter((mesa) => !changeMesaBlocked[mesa.id])
 
-  function openChangeMesaDialog() {
+  async function openChangeMesaDialog() {
     setNewMesaId('')
+    setChangeMesaBlocked({})
     setChangeMesaOpen(true)
+    setChangeMesaLoading(true)
+
+    try {
+      const response = await pedidosService.getAll({ tipo: 'MESA' })
+      const currentPedidoId = resolvePedidoId()
+      const blocked: Record<number, string> = {}
+
+      for (const pedido of unwrapPedidosPayload(response.data)) {
+        const mesaId = Number(pedido.mesaId ?? pedido.mesa?.id ?? 0)
+        const estado = normalizePedidoEstado(pedido.estado)
+        if (mesaId > 0 && pedido.id !== currentPedidoId && !CLOSED_ORDER_STATES.includes(estado)) {
+          blocked[mesaId] = estado
+        }
+      }
+
+      setChangeMesaBlocked(blocked)
+    } catch {
+      // Sin datos frescos se usa el mapa ya cargado.
+      const fallback: Record<number, string> = {}
+      for (const [mesaId, pedido] of Object.entries(openPedidosByMesa)) {
+        fallback[Number(mesaId)] = normalizePedidoEstado(pedido.estado)
+      }
+      setChangeMesaBlocked(fallback)
+    } finally {
+      setChangeMesaLoading(false)
+    }
   }
 
   async function handleChangeMesa() {
@@ -1359,6 +1390,8 @@ export default function MesasPage() {
           ? extractBackendMessage(requestError.response.data)
           : ''
       toast.error(backendMessage || 'No fue posible cambiar el pedido de mesa.')
+      setChangeMesaBlocked((current) => ({ ...current, [targetMesaId]: 'OCUPADA' }))
+      setNewMesaId('')
     } finally {
       setSaving(false)
     }
@@ -1909,7 +1942,7 @@ export default function MesasPage() {
                       <span>
                         <IconButton
                           aria-label="Cambiar de mesa"
-                          onClick={openChangeMesaDialog}
+                          onClick={() => void openChangeMesaDialog()}
                           disabled={saving || pedidoLoading}
                           size="small"
                           sx={{
@@ -2384,35 +2417,47 @@ export default function MesasPage() {
             <Typography sx={{ color: COLOR_MUTED }}>
               El pedido y sus líneas se moverán de la mesa #{selectedMesa?.numero ?? ''}. Elige una mesa libre:
             </Typography>
-            {mesasDisponiblesParaCambio.length === 0 ? (
-              <Alert severity="info">No hay mesas libres disponibles.</Alert>
-            ) : (
-              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 1 }}>
-                {mesasDisponiblesParaCambio.map((mesa) => {
-                  const isSelected = newMesaId === String(mesa.id)
-                  return (
-                    <Button
-                      key={mesa.id}
-                      variant={isSelected ? 'contained' : 'outlined'}
-                      onClick={() => setNewMesaId(String(mesa.id))}
-                      sx={{
-                        flexDirection: 'column',
-                        py: 1,
-                        lineHeight: 1.2,
-                        color: isSelected ? '#1a1208' : COLOR_TEXT,
-                        borderColor: 'rgba(212,175,55,0.35)',
-                        backgroundColor: isSelected ? COLOR_GOLD : 'transparent',
-                        '&:hover': { backgroundColor: isSelected ? '#e5c253' : 'rgba(212,175,55,0.12)' },
-                      }}
-                    >
-                      <Typography sx={{ fontWeight: 800 }}>#{mesa.numero}</Typography>
-                      <Typography sx={{ fontSize: '0.72rem', opacity: 0.8 }}>
-                        {formatCapacity(mesa.capacidad)}
-                      </Typography>
-                    </Button>
-                  )
-                })}
+            {changeMesaLoading ? (
+              <Box sx={{ py: 2, display: 'flex', justifyContent: 'center' }}>
+                <CircularProgress size={28} sx={{ color: COLOR_GOLD }} />
               </Box>
+            ) : mesasParaCambio.length === 0 ? (
+              <Alert severity="info">No hay otras mesas activas.</Alert>
+            ) : (
+              <>
+                {mesasLibresParaCambio.length === 0 ? (
+                  <Alert severity="info">No hay mesas libres disponibles.</Alert>
+                ) : null}
+                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 1 }}>
+                  {mesasParaCambio.map((mesa) => {
+                    const isSelected = newMesaId === String(mesa.id)
+                    const blockedState = changeMesaBlocked[mesa.id]
+                    return (
+                      <Button
+                        key={mesa.id}
+                        variant={isSelected ? 'contained' : 'outlined'}
+                        disabled={Boolean(blockedState)}
+                        onClick={() => setNewMesaId(String(mesa.id))}
+                        sx={{
+                          flexDirection: 'column',
+                          py: 1,
+                          lineHeight: 1.2,
+                          color: isSelected ? '#1a1208' : COLOR_TEXT,
+                          borderColor: 'rgba(212,175,55,0.35)',
+                          backgroundColor: isSelected ? COLOR_GOLD : 'transparent',
+                          '&:hover': { backgroundColor: isSelected ? '#e5c253' : 'rgba(212,175,55,0.12)' },
+                          '&.Mui-disabled': { color: 'rgba(243,233,210,0.35)', borderColor: 'rgba(255,255,255,0.12)' },
+                        }}
+                      >
+                        <Typography sx={{ fontWeight: 800 }}>#{mesa.numero}</Typography>
+                        <Typography sx={{ fontSize: '0.72rem', opacity: 0.8 }}>
+                          {blockedState ? 'Ocupada' : formatCapacity(mesa.capacidad)}
+                        </Typography>
+                      </Button>
+                    )
+                  })}
+                </Box>
+              </>
             )}
           </Stack>
         </DialogContent>
