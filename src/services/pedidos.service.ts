@@ -535,6 +535,7 @@ export const pedidosService = {
     api.post<SendToKitchenResponse>(`/pedidos/${id}/enviar-cocina`, payload),
   reprint: (id: number) => reprintPedidoWithFallback(id),
   bill: (id: number) => api.post<Pedido>(`/pedidos/${id}/facturar`),
+  changeMesa: (id: number, mesaId: number) => api.put<Pedido>(`/pedidos/${id}/mesa`, { mesaId }),
   delete: (id: number) => api.delete(`/pedidos/${id}`),
   getDetails: async (id: number) => {
     try {

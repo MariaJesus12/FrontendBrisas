@@ -19,8 +19,10 @@ import {
   Stack,
   Switch,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material'
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
 import AddIcon from '@mui/icons-material/Add'
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircle'
 import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircle'
@@ -657,6 +659,8 @@ export default function MesasPage() {
   const [openPedidosByMesa, setOpenPedidosByMesa] = useState<Record<number, Pedido>>({})
   const [reservadasByMesa, setReservadasByMesa] = useState<Record<number, boolean>>({})
   const [pedidoLoading, setPedidoLoading] = useState(false)
+  const [changeMesaOpen, setChangeMesaOpen] = useState(false)
+  const [newMesaId, setNewMesaId] = useState('')
   const [pedidoForm, setPedidoForm] = useState<PedidoMesaFormState>(initialPedidoForm)
   const [invoicePreviewOpen, setInvoicePreviewOpen] = useState(false)
   const [invoicePreviewPedido, setInvoicePreviewPedido] = useState<Pedido | null>(null)
@@ -1315,6 +1319,51 @@ export default function MesasPage() {
     }
   }
 
+  const mesasDisponiblesParaCambio = mesas.filter(
+    (mesa) => mesa.activa && mesa.id !== selectedMesa?.id && !openPedidosByMesa[mesa.id],
+  )
+
+  function openChangeMesaDialog() {
+    setNewMesaId('')
+    setChangeMesaOpen(true)
+  }
+
+  async function handleChangeMesa() {
+    const pedidoId = resolvePedidoId()
+    const targetMesaId = toPositiveInt(newMesaId)
+
+    if (!pedidoId || !targetMesaId) {
+      toast.error('Selecciona la mesa de destino.')
+      return
+    }
+
+    if (selectedPedido && !OPEN_ORDER_STATES.includes(normalizePedidoEstado(selectedPedido.estado))) {
+      toast.error('Solo se puede cambiar de mesa un pedido abierto.')
+      return
+    }
+
+    setSaving(true)
+    try {
+      await pedidosService.changeMesa(pedidoId, targetMesaId)
+      const targetMesa = mesas.find((mesa) => mesa.id === targetMesaId) ?? null
+      toast.success(`Pedido movido a la mesa #${targetMesa?.numero ?? targetMesaId}.`)
+      setChangeMesaOpen(false)
+      setNewMesaId('')
+      if (targetMesa) {
+        setSelectedMesa(targetMesa)
+      }
+      await Promise.all([loadMesaPedido(targetMesaId), loadMesas()])
+    } catch (requestError) {
+      const backendMessage =
+        axios.isAxiosError(requestError) && requestError.response
+          ? extractBackendMessage(requestError.response.data)
+          : ''
+      toast.error(backendMessage || 'No fue posible cambiar el pedido de mesa.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function openInvoicePreview() {
     if (!selectedPedido) {
       toast.error('Primero abre o crea un pedido para esta mesa.')
@@ -1851,9 +1900,30 @@ export default function MesasPage() {
           <Box sx={{ p: 3, borderBottom: '1px solid rgba(212,175,55,0.18)' }}>
             <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
               <Box>
-                <Typography sx={{ color: COLOR_GOLD, fontWeight: 900, fontSize: '1.4rem' }}>
-                  Mesa #{selectedMesa?.numero ?? ''}
-                </Typography>
+                <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                  <Typography sx={{ color: COLOR_GOLD, fontWeight: 900, fontSize: '1.4rem' }}>
+                    Mesa #{selectedMesa?.numero ?? ''}
+                  </Typography>
+                  {selectedPedido && OPEN_ORDER_STATES.includes(normalizePedidoEstado(selectedPedido.estado)) ? (
+                    <Tooltip title="Cambiar de mesa">
+                      <span>
+                        <IconButton
+                          aria-label="Cambiar de mesa"
+                          onClick={openChangeMesaDialog}
+                          disabled={saving || pedidoLoading}
+                          size="small"
+                          sx={{
+                            color: COLOR_GOLD,
+                            border: '1px solid rgba(212,175,55,0.35)',
+                            '&:hover': { backgroundColor: 'rgba(212,175,55,0.14)' },
+                          }}
+                        >
+                          <SwapHorizIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  ) : null}
+                </Stack>
                 <Typography sx={{ color: COLOR_MUTED, mt: 0.5 }}>
                   {selectedPedido
                     ? 'Pedido abierto: agrega líneas, envía a cocina y factura al cierre del servicio.'
@@ -2301,6 +2371,62 @@ export default function MesasPage() {
             sx={{ backgroundColor: COLOR_MAROON, '&:hover': { backgroundColor: '#a42535' } }}
           >
             {saving ? 'Guardando...' : 'Guardar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={changeMesaOpen} onClose={() => !saving && setChangeMesaOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle sx={{ backgroundColor: '#160f0c', color: COLOR_GOLD, fontWeight: 800 }}>
+          Cambiar de mesa
+        </DialogTitle>
+        <DialogContent sx={{ backgroundColor: '#160f0c', pt: 3 }}>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <Typography sx={{ color: COLOR_MUTED }}>
+              El pedido y sus líneas se moverán de la mesa #{selectedMesa?.numero ?? ''}. Elige una mesa libre:
+            </Typography>
+            {mesasDisponiblesParaCambio.length === 0 ? (
+              <Alert severity="info">No hay mesas libres disponibles.</Alert>
+            ) : (
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 1 }}>
+                {mesasDisponiblesParaCambio.map((mesa) => {
+                  const isSelected = newMesaId === String(mesa.id)
+                  return (
+                    <Button
+                      key={mesa.id}
+                      variant={isSelected ? 'contained' : 'outlined'}
+                      onClick={() => setNewMesaId(String(mesa.id))}
+                      sx={{
+                        flexDirection: 'column',
+                        py: 1,
+                        lineHeight: 1.2,
+                        color: isSelected ? '#1a1208' : COLOR_TEXT,
+                        borderColor: 'rgba(212,175,55,0.35)',
+                        backgroundColor: isSelected ? COLOR_GOLD : 'transparent',
+                        '&:hover': { backgroundColor: isSelected ? '#e5c253' : 'rgba(212,175,55,0.12)' },
+                      }}
+                    >
+                      <Typography sx={{ fontWeight: 800 }}>#{mesa.numero}</Typography>
+                      <Typography sx={{ fontSize: '0.72rem', opacity: 0.8 }}>
+                        {formatCapacity(mesa.capacidad)}
+                      </Typography>
+                    </Button>
+                  )
+                })}
+              </Box>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ backgroundColor: '#160f0c', p: 2.5 }}>
+          <Button onClick={() => setChangeMesaOpen(false)} disabled={saving} sx={{ color: COLOR_TEXT }}>
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => void handleChangeMesa()}
+            disabled={saving || !newMesaId}
+            sx={{ backgroundColor: COLOR_MAROON, '&:hover': { backgroundColor: '#a42535' } }}
+          >
+            {saving ? 'Moviendo...' : 'Confirmar cambio'}
           </Button>
         </DialogActions>
       </Dialog>
