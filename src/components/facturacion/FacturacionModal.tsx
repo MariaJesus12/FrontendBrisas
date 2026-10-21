@@ -926,6 +926,16 @@ function parseAccountsPayload(payload: unknown): { accounts: PedidoAccount[]; un
   return { accounts: unwrapArrayPayload(payload, normalizeAccount), unassignedPool: null }
 }
 
+function getAccountLabel(account: PedidoAccount): string {
+  return account.nombre ?? `Cuenta ${account.numeroCuenta ?? account.id}`
+}
+
+function findAccountLineByDetailId(account: PedidoAccount, detailId: number): PedidoAccountDetail | undefined {
+  return (account.detalles ?? []).find(
+    (line) => (toPositiveInt(line.detailId ?? line.pedidoDetalleId) ?? line.id) === detailId,
+  )
+}
+
 export default function FacturacionModal({
   open,
   pedidoId,
@@ -949,6 +959,7 @@ export default function FacturacionModal({
   const [paymentScopeById, setPaymentScopeById] = useState<Record<number, number | null>>({})
 
   const [selectedAccountId, setSelectedAccountId] = useState('')
+  const [confirmedRestId, setConfirmedRestId] = useState<number | null>(null)
   const [splitSelectionByLine, setSplitSelectionByLine] = useState<Record<string, { checked: boolean; cantidad: string }>>({})
   const [detailMoveQty, setDetailMoveQty] = useState<Record<string, string>>({})
   const [detailMoveTarget, setDetailMoveTarget] = useState<Record<string, string>>({})
@@ -966,6 +977,8 @@ export default function FacturacionModal({
 
     setPaymentScopeById({})
     setUnassignedPool(null)
+    setConfirmedRestId(null)
+    setSplitSelectionByLine({})
     void loadData(pedidoId)
   }, [open, pedidoId])
 
@@ -1134,17 +1147,44 @@ export default function FacturacionModal({
     return map
   }, [accounts, detailsById])
 
+  // El backend deja el resto de la primera división en la cuenta más antigua: se muestra como
+  // "pendiente de dividir" (no como cuenta) hasta que el mesero decide cobrarla tal cual.
+  const restAccount = useMemo<PedidoAccount | null>(() => {
+    if (unassignedPool && unassignedPool.length > 0) {
+      return null
+    }
+
+    const candidate = [...accounts].sort((a, b) => (a.numeroCuenta ?? a.id) - (b.numeroCuenta ?? b.id))[0]
+    if (!candidate || candidate.id === confirmedRestId || (candidate.detalles ?? []).length === 0) {
+      return null
+    }
+
+    const hasPayments =
+      Number(candidate.totalPagado ?? 0) > 0 ||
+      isPaidAccountStatus(candidate.estado) ||
+      payments.some((payment) => getPaymentAccountId(payment) === candidate.id)
+
+    return hasPayments ? null : candidate
+  }, [accounts, confirmedRestId, paymentScopeById, payments, unassignedPool])
+
   const assignedSubtotal = useMemo(() => {
-    return accounts.reduce((sum, account) => sum + (accountSubtotalById.get(account.id) ?? 0), 0)
-  }, [accountSubtotalById, accounts])
+    return accounts.reduce(
+      (sum, account) => (account.id === restAccount?.id ? sum : sum + (accountSubtotalById.get(account.id) ?? 0)),
+      0,
+    )
+  }, [accountSubtotalById, accounts, restAccount?.id])
 
   const unassignedSubtotal = useMemo(() => {
+    if (restAccount) {
+      return roundMoney(accountSubtotalById.get(restAccount.id) ?? 0)
+    }
+
     if (unassignedPool) {
       return roundMoney(unassignedPool.reduce((sum, line) => sum + line.subtotal, 0))
     }
 
     return Math.max(roundMoney(orderSubtotal - assignedSubtotal), 0)
-  }, [assignedSubtotal, orderSubtotal, unassignedPool])
+  }, [accountSubtotalById, assignedSubtotal, orderSubtotal, restAccount, unassignedPool])
 
   const isMesaOrder = useMemo(() => String(pedido?.tipo ?? '').toUpperCase() === 'MESA', [pedido?.tipo])
 
@@ -1226,6 +1266,24 @@ export default function FacturacionModal({
   }, [accounts])
 
   const unassignedDetails = useMemo<UnassignedDisplayLine[]>(() => {
+    if (restAccount) {
+      return (restAccount.detalles ?? []).map((line) => {
+        const detailId = toPositiveInt(line.detailId ?? line.pedidoDetalleId) ?? line.id
+        const source = detailsById.get(detailId)
+        const cantidad = Number(line.cantidad ?? 0)
+        const subtotal = Number(line.subtotal ?? Number(line.precioUnitario ?? 0) * cantidad)
+
+        return {
+          detailId,
+          productoId: toPositiveInt(line.productoId ?? source?.productoId) ?? undefined,
+          label: source?.producto?.nombre ?? source?.productoNombre ?? line.productoNombre ?? 'Producto',
+          observacion: source?.observacion?.trim() || undefined,
+          cantidad: roundMoney(cantidad),
+          subtotal: roundMoney(Number.isFinite(subtotal) ? subtotal : 0),
+        }
+      })
+    }
+
     // Fuente autoritativa: pool "sin asignar" del backend (ya viene descontado tras cada movimiento).
     if (unassignedPool) {
       return unassignedPool.map((line) => ({
@@ -1270,7 +1328,7 @@ export default function FacturacionModal({
         }
       })
       .filter((item): item is UnassignedDisplayLine => item !== null)
-  }, [assignedDetailIds, assignedQuantityByDetailId, details, detailsById, unassignedPool])
+  }, [assignedDetailIds, assignedQuantityByDetailId, details, detailsById, restAccount, unassignedPool])
 
   // Agrupa las líneas físicas del mismo producto (y misma observación) en una sola fila:
   // lo que cambia es la cantidad, no la cantidad de filas.
@@ -1596,14 +1654,25 @@ export default function FacturacionModal({
           },
         ]
 
-    const accountScopes = accounts.map((account) => ({
-      key: getScopeKey(account.id),
-      accountId: account.id,
-      title: account.nombre ?? `Cuenta #${account.id}`,
-    }))
+    const accountScopes = accounts
+      .filter(
+        (account) =>
+          account.id !== restAccount?.id && ((account.detalles ?? []).length > 0 || Number(account.totalPagado ?? 0) > 0),
+      )
+      .map((account) => ({
+        key: getScopeKey(account.id),
+        accountId: account.id,
+        title: getAccountLabel(account),
+      }))
 
     return [...base, ...accountScopes]
-  }, [accounts])
+  }, [accounts, restAccount?.id])
+
+  const visibleAccounts = useMemo(
+    () => accounts.filter((account) => billingScopes.some((scope) => scope.accountId === account.id)),
+    [accounts, billingScopes],
+  )
+  const hasSplitSelection = Object.values(splitSelectionByLine).some((entry) => entry.checked)
 
   const openBillingScopes = billingScopes.filter((scope) => !getScopeAmounts(scope.accountId).isClosed)
   const closedBillingScopes = billingScopes.filter((scope) => getScopeAmounts(scope.accountId).isClosed)
@@ -1731,12 +1800,51 @@ export default function FacturacionModal({
     return normalized
   }
 
-  async function handleCreateAccount() {
+  async function moveItemsFromRest(targetAccountId: number, items: Array<{ detailId?: number; cantidad?: number }>) {
+    if (!pedidoId || !restAccount) {
+      return
+    }
+
+    for (const item of items) {
+      if (!item.detailId) {
+        continue
+      }
+
+      const line = findAccountLineByDetailId(restAccount, item.detailId)
+      const alternateDetailId = line && line.id !== item.detailId ? line.id : undefined
+
+      await pedidosService.moveAccountDetail(
+        pedidoId,
+        restAccount.id,
+        item.detailId,
+        { cantidad: item.cantidad, cuentaDestinoId: targetAccountId },
+        alternateDetailId,
+      )
+    }
+  }
+
+  function buildAllPendingItems() {
+    return groupedUnassignedLines.flatMap((group) =>
+      group.memberLines.map((member) => ({ detailId: member.detailId, productoId: group.productoId })),
+    )
+  }
+
+  function handleConfirmRestAsAccount() {
+    if (!restAccount) {
+      return
+    }
+
+    setConfirmedRestId(restAccount.id)
+    clearSplitSelection()
+    toast.success(`Lo pendiente quedó como ${getAccountLabel(restAccount)}.`)
+  }
+
+  async function handleCreateAccount(useAllPending = false) {
     if (!pedidoId) {
       return
     }
 
-    const items = buildSplitItemsFromSelection()
+    const items = useAllPending ? buildAllPendingItems() : buildSplitItemsFromSelection()
     if (items === null) {
       return
     }
@@ -1749,6 +1857,34 @@ export default function FacturacionModal({
     setSaving(true)
     try {
       const existingIds = new Set(accounts.map((account) => account.id))
+
+      if (restAccount) {
+        // La cuenta nueva se crea vacía y recibe solo lo seleccionado; el resto sigue pendiente.
+        const createResponse = await pedidosService.createAccount(pedidoId, { activo: true })
+        let newAccountId = extractCreatedAccountId(createResponse.data)
+
+        if (!newAccountId) {
+          const refreshed = parseAccountsPayload((await pedidosService.getAccounts(pedidoId)).data)
+          newAccountId = refreshed.accounts.find((account) => !existingIds.has(account.id))?.id ?? null
+        }
+
+        if (!newAccountId) {
+          toast.error('No se pudo identificar la cuenta nueva. Actualiza e inténtalo de nuevo.')
+          await reloadAccountsAndPayments()
+          return
+        }
+
+        try {
+          await moveItemsFromRest(newAccountId, items)
+        } finally {
+          await reloadAccountsAndPayments()
+        }
+
+        clearSplitSelection()
+        toast.success('Cuenta nueva creada. Lo demás sigue pendiente de dividir.')
+        return
+      }
+
       // El backend permite crear la cuenta ya con productos en el mismo POST.
       const createResponse = await pedidosService.createAccount(pedidoId, {
         activo: true,
@@ -1812,10 +1948,19 @@ export default function FacturacionModal({
 
     setSaving(true)
     try {
-      await pedidosService.addAccountDetail(pedidoId, accountId, { items })
+      if (restAccount) {
+        try {
+          await moveItemsFromRest(accountId, items)
+        } finally {
+          await reloadAccountsAndPayments()
+        }
+      } else {
+        await pedidosService.addAccountDetail(pedidoId, accountId, { items })
+        await reloadAccountsAndPayments()
+      }
+
       clearSplitSelection()
-      toast.success('Producto agregado a la cuenta.')
-      await reloadAccountsAndPayments()
+      toast.success('Productos agregados a la cuenta.')
     } catch (requestError) {
       const backendMessage =
         axios.isAxiosError(requestError) && requestError.response
@@ -1942,7 +2087,17 @@ export default function FacturacionModal({
           continue
         }
 
-        await pedidosService.removeAccountDetail(pedidoId, accountId, primaryDetailId, { cantidad: take }, alternateDetailId)
+        if (restAccount && restAccount.id !== accountId) {
+          await pedidosService.moveAccountDetail(
+            pedidoId,
+            accountId,
+            primaryDetailId,
+            { cantidad: take, cuentaDestinoId: restAccount.id },
+            alternateDetailId,
+          )
+        } else {
+          await pedidosService.removeAccountDetail(pedidoId, accountId, primaryDetailId, { cantidad: take }, alternateDetailId)
+        }
 
         if (take !== undefined) {
           remaining -= take
@@ -2242,39 +2397,10 @@ export default function FacturacionModal({
               <Stack spacing={1.5}>
                 <Typography sx={{ color: COLOR_GOLD, fontWeight: 800 }}>Dividir cuenta por productos</Typography>
 
-                <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
-                  <TextField
-                    label="Cuenta"
-                    select
-                    value={selectedAccountId}
-                    onChange={(event) => setSelectedAccountId(event.target.value)}
-                    fullWidth
-                    sx={{
-                      '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
-                      '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
-                    }}
-                  >
-                    <MenuItem value="">Cuenta completa</MenuItem>
-                    {accounts.map((account) => (
-                      <MenuItem key={account.id} value={String(account.id)}>
-                        {account.nombre ?? `Cuenta #${account.id}`}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-
-
-                  <Button
-                    variant="outlined"
-                    onClick={() => void handleCreateAccount()}
-                    disabled={saving || Object.values(splitSelectionByLine).every((entry) => !entry.checked)}
-                    sx={{ color: COLOR_GOLD, borderColor: 'rgba(212,175,55,0.35)' }}
-                  >
-                    Crear cuenta
-                  </Button>
-                </Stack>
-
-                <Typography sx={{ color: COLOR_MUTED, fontSize: '0.8rem' }}>
-                  Selecciona al menos un producto pendiente: la cuenta nueva se crea con esos productos ya asignados.
+                <Typography sx={{ color: COLOR_MUTED, fontSize: '0.85rem' }}>
+                  1) Marca los productos (y la cantidad) de una cuenta nueva y pulsa &quot;Crear cuenta nueva&quot;.
+                  Lo que no marques sigue pendiente. 2) Repite para cada cuenta. 3) Cuando lo pendiente sea la última
+                  cuenta, pulsa &quot;Todo lo pendiente en una sola cuenta&quot;.
                 </Typography>
 
                 <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
@@ -2347,38 +2473,73 @@ export default function FacturacionModal({
                   </Paper>
                 </Stack>
 
-                <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
-                  <Button
-                    variant="outlined"
-                    onClick={() => void handleAssignDetailToAccount()}
-                    disabled={
-                      saving ||
-                      !selectedAccountId ||
-                      groupedUnassignedLines.length === 0 ||
-                      Object.values(splitSelectionByLine).every((entry) => !entry.checked)
-                    }
-                    sx={{ color: COLOR_TEXT, borderColor: 'rgba(243,233,210,0.35)' }}
-                  >
-                    Mover seleccion a cuenta
-                  </Button>
-                  <Button
-                    variant="text"
-                    onClick={() => clearSplitSelection()}
-                    disabled={saving}
-                    sx={{ color: COLOR_MUTED }}
-                  >
-                    Limpiar seleccion
-                  </Button>
-                </Stack>
+                {groupedUnassignedLines.length > 0 ? (
+                  <Stack spacing={1.25}>
+                    <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
+                      <Button
+                        variant="contained"
+                        onClick={() => void handleCreateAccount()}
+                        disabled={saving || !hasSplitSelection}
+                        sx={{ backgroundColor: COLOR_GOLD, color: '#1a1208', fontWeight: 800, '&:hover': { backgroundColor: '#e3c45f' } }}
+                      >
+                        Crear cuenta nueva con lo seleccionado
+                      </Button>
+                      {accounts.length > 0 ? (
+                        <Button
+                          variant="outlined"
+                          onClick={() => (restAccount ? handleConfirmRestAsAccount() : void handleCreateAccount(true))}
+                          disabled={saving}
+                          sx={{ color: COLOR_GOLD, borderColor: 'rgba(212,175,55,0.5)' }}
+                        >
+                          Todo lo pendiente en una sola cuenta
+                        </Button>
+                      ) : null}
+                      <Button variant="text" onClick={() => clearSplitSelection()} disabled={saving} sx={{ color: COLOR_MUTED }}>
+                        Limpiar selección
+                      </Button>
+                    </Stack>
+
+                    {visibleAccounts.length > 0 ? (
+                      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25} sx={{ alignItems: { md: 'center' } }}>
+                        <TextField
+                          label="O agregar lo seleccionado a una cuenta existente"
+                          select
+                          value={selectedAccountId}
+                          onChange={(event) => setSelectedAccountId(event.target.value)}
+                          fullWidth
+                          sx={{
+                            '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                            '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                          }}
+                        >
+                          <MenuItem value="">Seleccionar cuenta</MenuItem>
+                          {visibleAccounts.map((account) => (
+                            <MenuItem key={account.id} value={String(account.id)}>
+                              {getAccountLabel(account)}
+                            </MenuItem>
+                          ))}
+                        </TextField>
+                        <Button
+                          variant="outlined"
+                          onClick={() => void handleAssignDetailToAccount()}
+                          disabled={saving || !selectedAccountId || !hasSplitSelection}
+                          sx={{ color: COLOR_TEXT, borderColor: 'rgba(243,233,210,0.35)', whiteSpace: 'nowrap' }}
+                        >
+                          Agregar a la cuenta
+                        </Button>
+                      </Stack>
+                    ) : null}
+                  </Stack>
+                ) : null}
 
                 {accounts.length > 0 && groupedUnassignedLines.length === 0 ? (
                   <Alert severity="success">Cuenta completamente dividida: no quedan productos sin asignar.</Alert>
                 ) : null}
 
-                {accounts.map((account) => (
+                {visibleAccounts.map((account) => (
                   <Paper key={account.id} sx={{ p: 1.25, backgroundColor: 'rgba(0,0,0,0.25)' }}>
                     <Typography sx={{ color: COLOR_GOLD, fontWeight: 700, mb: 0.75 }}>
-                      {account.nombre ?? `Cuenta #${account.id}`}
+                      {getAccountLabel(account)}
                     </Typography>
                     {(account.detalles ?? []).length === 0 ? (
                       <Typography sx={{ color: COLOR_MUTED, fontSize: '0.85rem' }}>Sin productos en esta cuenta.</Typography>
@@ -2430,11 +2591,11 @@ export default function FacturacionModal({
                                   }}
                                 >
                                   <MenuItem value="">Seleccionar</MenuItem>
-                                  {accounts
+                                  {visibleAccounts
                                     .filter((targetAccount) => targetAccount.id !== account.id)
                                     .map((targetAccount) => (
                                       <MenuItem key={targetAccount.id} value={String(targetAccount.id)}>
-                                        {targetAccount.nombre ?? `Cuenta #${targetAccount.id}`}
+                                        {getAccountLabel(targetAccount)}
                                       </MenuItem>
                                     ))}
                                 </TextField>
@@ -2453,7 +2614,7 @@ export default function FacturacionModal({
                                     sx={{ color: '#f4a8b2' }}
                                     onClick={() => void handleReturnAccountDetail(account.id, group)}
                                   >
-                                    Devolver
+                                    Devolver a pendientes
                                   </Button>
                                 </Stack>
                               </Stack>
@@ -2482,9 +2643,9 @@ export default function FacturacionModal({
 
                 {hasUnassignedBalance ? (
                   <Alert severity="info">
-                    Los productos sin asignar no se cobran todavía. Dividilos en otra cuenta (creala con los productos
-                    seleccionados) o asignalos a una cuenta existente para poder facturar. Hasta que no quede nada sin
-                    asignar no se puede confirmar la factura.
+                    Aún hay productos pendientes de dividir. Crea otra cuenta con los productos que marques, o pulsa
+                    &quot;Todo lo pendiente en una sola cuenta&quot; si ya no habrá más divisiones. Mientras queden
+                    productos pendientes no se puede facturar.
                   </Alert>
                 ) : null}
 
