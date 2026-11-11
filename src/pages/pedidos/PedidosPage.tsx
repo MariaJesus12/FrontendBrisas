@@ -63,6 +63,8 @@ import type {
 import { openKitchenPrintPreview } from '@/utils/kitchenPrint'
 import { printBillingTicket, BILLING_TICKET_CEDULA } from '@/utils/billingTicketPrint'
 import { normalizeRole } from '@/utils/roles'
+import { findProductByQuery, productPriceInput } from '@/utils/productSearch'
+import { getPendingKitchenDetails, sameKitchenDetails } from '@/utils/kitchenPending'
 
 const COLOR_GOLD = '#D4AF37'
 const COLOR_TEXT = '#F3E9D2'
@@ -177,7 +179,11 @@ function normalizePedidoRecord(item: unknown): Pedido | null {
     return null
   }
 
-  const record = item as Record<string, unknown>
+  const outerRecord = item as Record<string, unknown>
+  const record =
+    typeof outerRecord.pedido === 'object' && outerRecord.pedido !== null
+      ? (outerRecord.pedido as Record<string, unknown>)
+      : outerRecord
   const id = toPositiveNumber(record.id ?? record.pedidoId ?? record.pedido_id)
   if (!id) {
     return null
@@ -269,7 +275,10 @@ function normalizePedidoDetailRecord(item: unknown): PedidoDetalle | null {
         ? { nombre: productoNombre }
         : undefined,
     cantidad: Number.isFinite(cantidad) ? cantidad : 0,
-    cantidadEnviadaCocina: Number(record.cantidadEnviadaCocina ?? record.cantidad_enviada_cocina ?? 0) || 0,
+    cantidadEnviadaCocina:
+      record.cantidadEnviadaCocina == null && record.cantidad_enviada_cocina == null
+        ? undefined
+        : Number(record.cantidadEnviadaCocina ?? record.cantidad_enviada_cocina),
     precioUnitario: Number.isFinite(precioUnitario) ? precioUnitario : 0,
     observacion: typeof record.observacion === 'string' ? record.observacion : undefined,
     subtotal:
@@ -702,7 +711,8 @@ function normalizeProductRecord(item: unknown): Product | null {
     return null
   }
 
-  const precio = Number(record.precio ?? record.price ?? 0)
+  const rawPrecio = record.precio ?? record.price
+  const precio = rawPrecio == null || rawPrecio === '' ? NaN : Number(rawPrecio)
   const codigoValue = record.codigo ?? record.code ?? record.sku
 
   return {
@@ -720,7 +730,7 @@ function normalizeProductRecord(item: unknown): Product | null {
         : typeof record.description === 'string'
           ? record.description
           : '',
-    precio: Number.isFinite(precio) ? precio : 0,
+    precio,
     imagen:
       typeof record.imagen === 'string'
         ? record.imagen
@@ -780,35 +790,6 @@ function getMesaDisplayName(mesa: Mesa): string {
 function getProductDisplayName(product: Product): string {
   const code = product.codigo ? `${product.codigo} • ` : ''
   return `${code}${product.nombre}`
-}
-
-function findProductByQuery(products: Product[], rawQuery: string): Product | null {
-  const normalized = rawQuery.trim().toUpperCase()
-  if (!normalized) {
-    return null
-  }
-
-  const exact = products.find((product) => String(product.codigo ?? '').trim().toUpperCase() === normalized)
-  if (exact) {
-    return exact
-  }
-
-  const idMatch = products.find((product) => String(product.id) === normalized)
-  if (idMatch) {
-    return idMatch
-  }
-
-  const exactNameMatch = products.find((product) => product.nombre.trim().toUpperCase() === normalized)
-  if (exactNameMatch) {
-    return exactNameMatch
-  }
-
-  return (
-    products.find((product) => {
-      const code = String(product.codigo ?? '').trim().toUpperCase()
-      return code.includes(normalized) || product.nombre.trim().toUpperCase().includes(normalized)
-    }) ?? null
-  )
 }
 
 function getPedidoMesaLabel(pedido: Pedido): string {
@@ -1517,17 +1498,17 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
       codigoProducto: rawCode,
       productoId: product ? String(product.id) : '',
       productoNombre: product?.nombre ?? '',
-      precioUnitario: product ? String(product.precio) : '',
+      precioUnitario: productPriceInput(product),
     })
   }
 
   function applyProductSelectionToLine(index: number, rawProductId: string) {
-    const product = products.find((item) => String(item.id) === rawProductId)
+    const product = products.find((item) => String(item.id) === String(rawProductId))
     updatePedidoLine(index, {
       productoId: rawProductId,
       codigoProducto: product?.codigo ?? rawProductId,
       productoNombre: product?.nombre ?? '',
-      precioUnitario: product ? String(product.precio) : '',
+      precioUnitario: productPriceInput(product),
     })
   }
 
@@ -1547,6 +1528,11 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
 
   async function handleSavePedido() {
     let resolvedClienteId: number | undefined
+
+    if (pedidoDialogMode === 'create' && pedidoForm.detalles.some((line) => !line.precioUnitario.trim())) {
+      toast.error('Selecciona un producto con precio válido para cada línea.')
+      return
+    }
 
     if (pedidoForm.tipo === 'LLEVAR') {
       if (!pedidoForm.clienteNombre.trim()) {
@@ -1726,8 +1712,14 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
     const cantidad = Number(detailForm.cantidad)
     const precioUnitario = Number(detailForm.precioUnitario)
 
-    if (!productoId || !Number.isFinite(cantidad) || cantidad <= 0 || !Number.isFinite(precioUnitario) || precioUnitario < 0) {
+    if (!productoId || !Number.isInteger(cantidad) || cantidad <= 0 || !detailForm.precioUnitario.trim() || !Number.isFinite(precioUnitario) || precioUnitario < 0) {
       toast.error('Completa una línea válida antes de guardar.')
+      return
+    }
+
+    const editingDetail = currentDetails.find((detail) => detail.id === editingDetailId)
+    if (editingDetail && cantidad < Number(editingDetail.cantidadEnviadaCocina ?? 0)) {
+      toast.error('La cantidad no puede ser menor que las unidades ya enviadas a cocina.')
       return
     }
 
@@ -1745,11 +1737,20 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
         await pedidosService.updateDetail(selectedPedido.id, editingDetailId, payload)
         toast.success('Línea actualizada.')
       } else {
-        await pedidosService.createDetail(selectedPedido.id, payload)
+        if (String(selectedPedido.tipo).toUpperCase() === 'LLEVAR') {
+          await pedidosService.createDetail(selectedPedido.id, {
+            productoId,
+            cantidad,
+            observacion: payload.observacion,
+          })
+        } else {
+          await pedidosService.createDetail(selectedPedido.id, payload)
+        }
         toast.success('Línea agregada.')
       }
 
       setDetailDialogOpen(false)
+      await loadPedidos()
       await openDetailsDialog(selectedPedido)
     } catch (requestError) {
       const backendMessage =
@@ -2029,18 +2030,6 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
       return
     }
 
-    const pendingKitchenDetails = currentDetails
-      .map((detail) => {
-        const cantidadPendiente = Number(detail.cantidad) - Number(detail.cantidadEnviadaCocina ?? 0)
-        return cantidadPendiente > 0 ? { ...detail, cantidad: cantidadPendiente } : null
-      })
-      .filter((detail): detail is PedidoDetalle => detail !== null)
-
-    if (pendingKitchenDetails.length === 0) {
-      toast.info('No hay productos nuevos pendientes de enviar a cocina.')
-      return
-    }
-
     const printWindow = window.open('', '_blank', 'width=420,height=720')
     if (!printWindow) {
       toast.error('No se pudo abrir la ventana de impresión. Revisa el bloqueador de popups.')
@@ -2048,6 +2037,17 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
     }
     setSaving(true)
     try {
+      const detailsResponse = await pedidosService.getDetails(pedidoId)
+      const detailsForKitchen = unwrapPedidoDetailsPayload(detailsResponse.data)
+      const pendingKitchenDetails = getPendingKitchenDetails(detailsForKitchen)
+      setCurrentDetails(detailsForKitchen)
+
+      if (pendingKitchenDetails.length === 0) {
+        printWindow.close()
+        toast.info('No hay productos nuevos pendientes de enviar a cocina.')
+        return
+      }
+
       const kitchenLines = pendingKitchenDetails.map((detail) => ({
           producto:
             detail.producto?.nombre ??
@@ -2067,11 +2067,20 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
             : selectedPedido?.tipo === 'LLEVAR'
               ? 'Pedido para llevar'
               : undefined,
-        esComandaAdicional: currentDetails.some((detail) => Number(detail.cantidadEnviadaCocina ?? 0) > 0),
+        esComandaAdicional: detailsForKitchen.some((detail) => Number(detail.cantidadEnviadaCocina) > 0),
         productos: kitchenLines,
       }, async () => {
         setSaving(true)
         try {
+          const latestResponse = await pedidosService.getDetails(pedidoId)
+          const latestDetails = unwrapPedidoDetailsPayload(latestResponse.data)
+          getPendingKitchenDetails(latestDetails)
+          if (!sameKitchenDetails(detailsForKitchen, latestDetails)) {
+            setCurrentDetails(latestDetails)
+            const message = 'El pedido cambió. Cierra esta vista y vuelve a abrir la comanda para revisar los productos pendientes.'
+            toast.info(message)
+            return { ok: false, message }
+          }
           const response = await pedidosService.sendToKitchen(pedidoId)
           const enviados = response.data.detallesEnviados.length
           toast.success(enviados === 1 ? 'Producto enviado a cocina.' : `${enviados} productos enviados a cocina.`)
@@ -2085,7 +2094,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
             axios.isAxiosError(requestError) && requestError.response
               ? extractBackendMessage(requestError.response.data)
               : ''
-          const message = backendMessage || 'No fue posible enviar la comanda a cocina.'
+          const message = backendMessage || (requestError instanceof Error ? requestError.message : 'No fue posible enviar la comanda a cocina.')
           toast.error(message)
           return { ok: false, message }
         } finally {
@@ -2098,7 +2107,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
         axios.isAxiosError(requestError) && requestError.response
           ? extractBackendMessage(requestError.response.data)
           : ''
-      toast.error(backendMessage || 'No fue posible enviar la comanda a cocina.')
+      toast.error(backendMessage || (requestError instanceof Error ? requestError.message : 'No fue posible enviar la comanda a cocina.'))
     } finally {
       setSaving(false)
     }
@@ -3385,17 +3394,53 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
         </DialogTitle>
         <DialogContent sx={{ backgroundColor: '#160f0c', pt: 3 }}>
           <Stack spacing={2}>
-            {products.length > 0 ? (
+            {String(selectedPedido?.tipo).toUpperCase() === 'LLEVAR' ? (
+              <>
+                <TextField
+                  label="Código o nombre"
+                  value={detailForm.codigoProducto}
+                  disabled={currentDetails.some((detail) => detail.id === editingDetailId && Number(detail.cantidadEnviadaCocina) > 0)}
+                  onChange={(event) => {
+                    const codigoProducto = event.target.value
+                    const product = findProductByQuery(products, codigoProducto)
+                    setDetailForm((current) => ({
+                      ...current,
+                      codigoProducto,
+                      productoId: product ? String(product.id) : '',
+                      precioUnitario: productPriceInput(product),
+                    }))
+                  }}
+                  helperText="Escribe código o nombre para autocompletar producto y precio."
+                  fullWidth
+                  sx={{
+                    '& .MuiFormHelperText-root': { color: COLOR_MUTED },
+                    '& .MuiInputLabel-root, & .MuiInputBase-input': { color: COLOR_TEXT },
+                    '& .MuiOutlinedInput-root': { color: COLOR_TEXT },
+                  }}
+                />
+                <TextField
+                  label="Producto"
+                  value={products.find((product) => String(product.id) === String(detailForm.productoId))?.nombre ?? ''}
+                  fullWidth
+                  disabled
+                  sx={{
+                    '& .MuiInputLabel-root': { color: COLOR_TEXT },
+                    '& .MuiInputBase-input.Mui-disabled': { WebkitTextFillColor: COLOR_TEXT },
+                  }}
+                />
+              </>
+            ) : products.length > 0 ? (
               <TextField
                 select
                 label="Producto"
                 value={detailForm.productoId}
+                disabled={currentDetails.some((detail) => detail.id === editingDetailId && Number(detail.cantidadEnviadaCocina) > 0)}
                 onChange={(event) => {
-                  const product = products.find((item) => String(item.id) === event.target.value)
+                  const product = products.find((item) => String(item.id) === String(event.target.value))
                   setDetailForm((current) => ({
                     ...current,
-                    productoId: event.target.value,
-                    precioUnitario: product ? String(product.precio) : current.precioUnitario,
+                    productoId: String(event.target.value),
+                    precioUnitario: productPriceInput(product),
                   }))
                 }}
                 fullWidth
@@ -3415,6 +3460,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
               <TextField
                 label="Producto ID"
                 value={detailForm.productoId}
+                disabled={currentDetails.some((detail) => detail.id === editingDetailId && Number(detail.cantidadEnviadaCocina) > 0)}
                 onChange={(event) => setDetailForm((current) => ({ ...current, productoId: event.target.value }))}
                 type="number"
                 fullWidth
@@ -3424,6 +3470,16 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                 }}
               />
             )}
+            <TextField
+              label="Precio unitario"
+              value={detailForm.precioUnitario ? formatCurrency(Number(detailForm.precioUnitario)) : ''}
+              fullWidth
+              disabled
+              sx={{
+                '& .MuiInputLabel-root': { color: COLOR_TEXT },
+                '& .MuiInputBase-input.Mui-disabled': { WebkitTextFillColor: COLOR_TEXT },
+              }}
+            />
             <TextField
               label="Cantidad"
               value={detailForm.cantidad}

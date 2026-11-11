@@ -164,8 +164,8 @@ export function openKitchenPrintPreview(
         ${productsHtml}
       </section>
       <section class="actions">
-        <button id="kitchen-print-button" class="button" type="button">Imprimir y enviar a cocina</button>
-        <div id="kitchen-print-status" class="status">Revisa la comanda y confirma la impresión.</div>
+        <button id="kitchen-print-button" class="button" type="button">Enviar a cocina</button>
+        <div id="kitchen-print-status" class="status">Revisa la comanda y confirma el envío a la impresora configurada.</div>
       </section>
     </main>
     <script>
@@ -188,9 +188,8 @@ export function openKitchenPrintPreview(
             return
           }
 
-          status.textContent = 'Abriendo selector de impresora...'
-          window.focus()
-          window.print()
+          status.textContent = 'Comanda enviada a la cola de impresión.'
+          window.close()
         } catch {
           status.textContent = 'No fue posible enviar la comanda.'
           button.disabled = false

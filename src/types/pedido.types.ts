@@ -139,6 +139,10 @@ export interface CreatePedidoDetalleDto {
   observacion?: string
 }
 
+export type AddPedidoDetalleDto = Omit<CreatePedidoDetalleDto, 'precioUnitario'> & {
+  precioUnitario?: number
+}
+
 export interface CreatePagoPedidoDto {
   metodoPagoId: number
   monto: number

@@ -44,6 +44,12 @@ Si ejecutas `npm run dev -c` puede fallar por argumento no valido. Usa solo `npm
 npm run build
 ```
 
+## Pedidos para llevar y cocina
+
+- Al agregar una linea a un pedido existente, busca el producto por codigo o nombre. El precio mostrado proviene del catalogo; el backend calcula el precio definitivo y actualiza el total al guardar.
+- La comanda incluye solamente las unidades pendientes de enviar. Si el pedido cambia mientras esta abierta la vista previa, cierrala y vuelve a abrirla para revisar la nueva comanda.
+- El backend debe tener aplicada la migracion de comandas incrementales `20260809_comandas_incrementales.sql` y exponer `cantidadEnviadaCocina` en los detalles. El envio confirmado se encola en la impresora configurada por el backend.
+
 ## Configuracion Backend (paso a paso)
 
 ### 1) URL base

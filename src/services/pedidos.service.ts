@@ -2,6 +2,7 @@ import axios from 'axios'
 import api from './api'
 import type {
   AddPedidoAccountDetailDto,
+  AddPedidoDetalleDto,
   CreatePedidoAccountDto,
   PedidoAccountSplitItemDto,
   CreatePagoPedidoDto,
@@ -548,7 +549,7 @@ export const pedidosService = {
       throw error
     }
   },
-  createDetail: async (id: number, data: CreatePedidoDetalleDto) => {
+  createDetail: async (id: number, data: AddPedidoDetalleDto) => {
     try {
       return await api.post<PedidoDetalle>(`/pedidos/${id}/details`, data)
     } catch (error) {
