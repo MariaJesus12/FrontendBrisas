@@ -62,6 +62,7 @@ import type {
 } from '@/types/pedido.types'
 import { openKitchenPrintPreview } from '@/utils/kitchenPrint'
 import { getPaymentMethodFromRecord, getPaymentMethodName } from '@/utils/paymentMethod'
+import { getTakeoutDrafts } from '@/utils/takeoutDrafts'
 import { printBillingTicket, BILLING_TICKET_CEDULA } from '@/utils/billingTicketPrint'
 import { normalizeRole } from '@/utils/roles'
 import { findProductByQuery, productPriceInput } from '@/utils/productSearch'
@@ -948,6 +949,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
     ? 'Gestiona pedidos para llevar en un flujo simple: crear, editar lineas y controlar estado.'
     : 'Gestiona pedidos por mesa o para llevar, controla detalles, pagos y estado operativo en un solo lugar.'
   const [pedidos, setPedidos] = useState<Pedido[]>([])
+  const [takeoutDrafts, setTakeoutDrafts] = useState<Pedido[]>([])
   const [mesas, setMesas] = useState<Mesa[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [clientes, setClientes] = useState<Cliente[]>([])
@@ -1086,7 +1088,9 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
       const paymentMethodsResponse = currentRole === 'ADMIN' ? responses[4] : responses[3]
       const reservasMesasResponse = currentRole === 'ADMIN' ? responses[5] : responses[4]
 
-      setPedidos(unwrapArrayPayload<Pedido>(pedidosResponse.data))
+      const loadedPedidos = unwrapArrayPayload<Pedido>(pedidosResponse.data)
+      setPedidos(loadedPedidos)
+      if (isTakeoutMode) setTakeoutDrafts(getTakeoutDrafts(loadedPedidos))
       setMesas(unwrapArrayPayload<Mesa>(mesasResponse.data))
       setProducts(unwrapProductsPayload(productsResponse.data))
       const clientesResponse = await clientesService.getAll({ active: true }).catch(() => ({ data: [] as unknown[] }))
@@ -1153,8 +1157,12 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
       if (activeFilters.fechaDesde) query.fechaDesde = activeFilters.fechaDesde
       if (activeFilters.fechaHasta) query.fechaHasta = activeFilters.fechaHasta
 
-      const response = await pedidosService.getAll(query)
+      const [response, draftsResponse] = await Promise.all([
+        pedidosService.getAll(query),
+        isTakeoutMode ? pedidosService.getAll({ tipo: 'LLEVAR', estado: 'BORRADOR' }) : Promise.resolve(null),
+      ])
       setPedidos(unwrapArrayPayload<Pedido>(response.data))
+      if (draftsResponse) setTakeoutDrafts(getTakeoutDrafts(unwrapArrayPayload<Pedido>(draftsResponse.data)))
     } catch (requestError) {
       const backendMessage =
         axios.isAxiosError(requestError) && requestError.response
@@ -2592,26 +2600,47 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
         </Alert>
       ) : null}
 
+      {(isTakeoutMode
+        ? [
+            { title: 'Pedidos para llevar en borrador', pedidos: takeoutDrafts, drafts: true },
+            { title: 'Todos los pedidos para llevar', pedidos: sortedPedidos, drafts: false },
+          ]
+        : [{ title: 'Pedidos', pedidos: sortedPedidos, drafts: false }]
+      ).map((section) => (
       <Paper
+        key={section.title}
         sx={{
           overflow: 'hidden',
+          mb: 3,
           borderRadius: 3,
           backgroundColor: 'rgba(10,10,10,0.72)',
           border: '1px solid rgba(212,175,55,0.28)',
           boxShadow: '0 12px 30px rgba(0,0,0,0.32)',
         }}
       >
+        {isTakeoutMode ? (
+          <Box sx={{ px: 3, pt: 2.5 }}>
+            <Typography variant="h6" sx={{ color: COLOR_GOLD, fontWeight: 700 }}>
+              {section.title}
+            </Typography>
+            {section.drafts ? (
+              <Typography sx={{ color: COLOR_MUTED }}>
+                Más recientes primero. Esta lista no depende de los filtros de la lista general.
+              </Typography>
+            ) : null}
+          </Box>
+        ) : null}
         {loading ? (
           <Box sx={{ py: 10, display: 'flex', justifyContent: 'center' }}>
             <CircularProgress sx={{ color: COLOR_GOLD }} />
           </Box>
-        ) : sortedPedidos.length === 0 ? (
+        ) : section.pedidos.length === 0 ? (
           <Box sx={{ py: 8, px: 3, textAlign: 'center' }}>
             <Typography variant="h6" sx={{ color: COLOR_GOLD, fontWeight: 700, mb: 1 }}>
-              No hay pedidos para mostrar
+              {section.drafts ? 'No hay pedidos para llevar en borrador' : 'No hay pedidos para mostrar'}
             </Typography>
             <Typography sx={{ color: COLOR_MUTED }}>
-              Crea un pedido nuevo o ajusta los filtros para revisar otro rango.
+              {section.drafts ? 'Los nuevos borradores aparecerán aquí.' : 'Crea un pedido nuevo o ajusta los filtros para revisar otro rango.'}
             </Typography>
           </Box>
         ) : (
@@ -2646,7 +2675,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
               </TableRow>
             </TableHead>
             <TableBody>
-              {sortedPedidos.map((pedido) => {
+              {section.pedidos.map((pedido) => {
                 const total = pedido.total ?? 0
                 const saldo = pedido.saldoPendiente ?? Math.max(total - (pedido.totalPagado ?? 0), 0)
                 const mesaId = resolvePedidoMesaId(pedido)
@@ -2752,6 +2781,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
           </TableContainer>
         )}
       </Paper>
+      ))}
 
       <Dialog open={pedidoDialogMode !== null} onClose={closePedidoDialog} fullWidth maxWidth="lg">
         <DialogTitle sx={{ backgroundColor: '#160f0c', color: COLOR_GOLD, fontWeight: 800 }}>

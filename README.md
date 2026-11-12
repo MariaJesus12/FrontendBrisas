@@ -46,6 +46,7 @@ npm run build
 
 ## Pedidos para llevar y cocina
 
+- La pantalla de pedidos para llevar muestra primero los borradores, del mas reciente al mas antiguo. Esta lista se mantiene independiente de los filtros de la lista general y ofrece las mismas acciones.
 - Al agregar una linea a un pedido existente, busca el producto por codigo o nombre. El precio mostrado proviene del catalogo; el backend calcula el precio definitivo y actualiza el total al guardar.
 - La comanda incluye solamente las unidades pendientes de enviar. Si el pedido cambia mientras esta abierta la vista previa, cierrala y vuelve a abrirla para revisar la nueva comanda.
 - Al confirmar la comanda se abre el selector de impresoras del navegador. Si se cancela la impresion, se puede abrir de nuevo desde la misma ventana sin reenviar el pedido. El navegador no confirma si la impresora completo la impresion.
