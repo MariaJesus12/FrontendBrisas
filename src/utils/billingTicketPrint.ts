@@ -272,6 +272,17 @@ export function generateBillingTicketHtml(data: BillingTicketData): string {
         font-size: 11px;
         line-height: 1.35;
       }
+      .print-actions {
+        margin: 12px 0;
+        text-align: center;
+      }
+      .print-actions button {
+        padding: 10px;
+        cursor: pointer;
+      }
+      @media print {
+        .print-actions { display: none; }
+      }
     </style>
   </head>
   <body>
@@ -336,6 +347,20 @@ export function generateBillingTicketHtml(data: BillingTicketData): string {
         <div>Le esperamos pronto</div>
       </div>
     </div>
+    <div class="print-actions">
+      <button id="billing-print-button" type="button">Abrir selector de impresora</button>
+      <p id="billing-print-status">Si cancelaste o no se abrió el selector, vuelve a intentarlo.</p>
+    </div>
+    <script>
+      document.getElementById('billing-print-button').addEventListener('click', () => {
+        try {
+          window.focus()
+          window.print()
+        } catch {
+          document.getElementById('billing-print-status').textContent = 'No se pudo abrir el selector. Revisa la configuración del navegador y vuelve a intentarlo.'
+        }
+      })
+    </script>
   </body>
 </html>`
 }
@@ -345,6 +370,12 @@ export function printBillingTicket(popup: Window, data: BillingTicketData): void
   popup.document.open()
   popup.document.write(html)
   popup.document.close()
-  popup.focus()
-  popup.print()
+  try {
+    popup.focus()
+    popup.print()
+  } catch (error) {
+    const status = popup.document.getElementById('billing-print-status')
+    if (!status) throw error
+    status.textContent = 'No se pudo abrir el selector. Revisa la configuración del navegador y vuelve a intentarlo.'
+  }
 }

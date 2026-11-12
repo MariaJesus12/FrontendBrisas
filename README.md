@@ -48,7 +48,9 @@ npm run build
 
 - Al agregar una linea a un pedido existente, busca el producto por codigo o nombre. El precio mostrado proviene del catalogo; el backend calcula el precio definitivo y actualiza el total al guardar.
 - La comanda incluye solamente las unidades pendientes de enviar. Si el pedido cambia mientras esta abierta la vista previa, cierrala y vuelve a abrirla para revisar la nueva comanda.
-- El backend debe tener aplicada la migracion de comandas incrementales `20260809_comandas_incrementales.sql` y exponer `cantidadEnviadaCocina` en los detalles. El envio confirmado se encola en la impresora configurada por el backend.
+- Al confirmar la comanda se abre el selector de impresoras del navegador. Si se cancela la impresion, se puede abrir de nuevo desde la misma ventana sin reenviar el pedido. El navegador no confirma si la impresora completo la impresion.
+- El backend debe tener aplicada la migracion de comandas incrementales `20260809_comandas_incrementales.sql`, exponer `cantidadEnviadaCocina` y admitir `metodoImpresion: "NAVEGADOR"` en `POST /pedidos/:id/enviar-cocina` y `POST /pedidos/:id/facturar`. Este modo no crea trabajos en la cola. Actualiza el backend antes del frontend: si aun usa la version anterior, el envio a cocina se encola y no se abre el selector para evitar duplicados; la facturacion podria crear un trabajo adicional.
+- Los recibos y reimpresiones abren el selector del navegador y permiten volver a abrirlo desde la vista del recibo. Habilita las ventanas emergentes para el sitio y verifica que la impresora este instalada en el equipo.
 
 ## Configuracion Backend (paso a paso)
 

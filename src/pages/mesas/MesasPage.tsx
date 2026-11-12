@@ -43,6 +43,7 @@ import type { Mesa } from '@/types/mesa.types'
 import type { Product } from '@/types/menu.types'
 import type { CreatePedidoDto, Pedido, PedidoDetalle, UpdatePedidoDto } from '@/types/pedido.types'
 import { openKitchenPrintPreview } from '@/utils/kitchenPrint'
+import { getPendingKitchenDetails, sameKitchenDetails } from '@/utils/kitchenPending'
 import { normalizeRole } from '@/utils/roles'
 
 const COLOR_GOLD = '#D4AF37'
@@ -422,7 +423,10 @@ function normalizePedidoDetailRecord(item: unknown): PedidoDetalle {
         }
       : undefined,
     cantidad: Number(record.cantidad ?? record.qty ?? 0),
-    cantidadEnviadaCocina: Number(record.cantidadEnviadaCocina ?? record.cantidad_enviada_cocina ?? 0) || 0,
+    cantidadEnviadaCocina:
+      record.cantidadEnviadaCocina == null && record.cantidad_enviada_cocina == null
+        ? undefined
+        : Number(record.cantidadEnviadaCocina ?? record.cantidad_enviada_cocina),
     precioUnitario: Number(record.precioUnitario ?? record.precio_unitario ?? record.price ?? 0),
     observacion:
       typeof record.observacion === 'string'
@@ -1259,12 +1263,14 @@ export default function MesasPage() {
       }
     }
 
-    const pendingKitchenDetails = detailsForKitchen
-      .map((detail) => {
-        const cantidadPendiente = Number(detail.cantidad) - Number(detail.cantidadEnviadaCocina ?? 0)
-        return cantidadPendiente > 0 ? { ...detail, cantidad: cantidadPendiente } : null
-      })
-      .filter((detail): detail is PedidoDetalle => detail !== null)
+    let pendingKitchenDetails: PedidoDetalle[]
+    try {
+      pendingKitchenDetails = getPendingKitchenDetails(detailsForKitchen)
+    } catch (error) {
+      printWindow.close()
+      toast.error(error instanceof Error ? error.message : 'No fue posible revisar los productos pendientes de cocina.')
+      return
+    }
 
     if (pendingKitchenDetails.length === 0) {
       printWindow.close()
@@ -1293,17 +1299,31 @@ export default function MesasPage() {
       }, async () => {
         setSaving(true)
         try {
-          const response = await pedidosService.sendToKitchen(pedidoId)
+          const latestResponse = await pedidosService.getDetails(pedidoId)
+          const latestDetails = unwrapPedidoDetailsPayload(latestResponse.data)
+          getPendingKitchenDetails(latestDetails)
+          if (!sameKitchenDetails(detailsForKitchen, latestDetails)) {
+            const message = 'El pedido cambió. Cierra esta vista y vuelve a abrir la comanda para revisar los productos pendientes.'
+            toast.info(message)
+            return { ok: false, message }
+          }
+          const response = await pedidosService.sendToKitchen(pedidoId, { metodoImpresion: 'NAVEGADOR' })
           const enviados = response.data.detallesEnviados.length
           toast.success(enviados === 1 ? 'Producto enviado a cocina.' : `${enviados} productos enviados a cocina.`)
-          await Promise.all([loadMesaPedido(Number(selectedMesa?.id ?? selectedPedido.mesaId ?? 0)), loadMesas()])
-          return { ok: true }
+          void Promise.all([loadMesaPedido(Number(selectedMesa?.id ?? selectedPedido.mesaId ?? 0)), loadMesas()])
+            .catch(() => toast.error('La comanda se registró, pero no se pudo actualizar la mesa.'))
+          if (response.data.metodoImpresion !== 'NAVEGADOR') {
+            const message = 'La comanda se envió a la cola. Actualiza el backend para usar el selector del navegador y evitar impresiones duplicadas.'
+            toast.warning(message)
+            return { ok: true, browserPrint: false, message }
+          }
+          return { ok: true, browserPrint: true }
         } catch (requestError) {
           const backendMessage =
             axios.isAxiosError(requestError) && requestError.response
               ? extractBackendMessage(requestError.response.data)
               : ''
-          const message = backendMessage || 'No fue posible enviar la comanda a cocina.'
+          const message = backendMessage || (requestError instanceof Error ? requestError.message : 'No fue posible enviar la comanda a cocina.')
           toast.error(message)
           return { ok: false, message }
         } finally {

@@ -1915,6 +1915,12 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
       return
     }
 
+    const popup = window.open('', '_blank', 'width=420,height=700')
+    if (!popup) {
+      toast.error('No se pudo abrir la ventana de impresión. Revisa el bloqueador de popups.')
+      return
+    }
+
     setSaving(true)
     try {
       const [pedidoResponse, detailsResponse, paymentsResponse] = await Promise.all([
@@ -1981,12 +1987,6 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
       const totalPagadoUSD = printablePayments.reduce((sum, payment) => sum + resolvePaymentAmountInCurrency(payment, 'USD'), 0)
       const totalVueltoUSD = printablePayments.reduce((sum, payment) => sum + resolvePaymentChangeInCurrency(payment, 'USD'), 0)
 
-      const popup = window.open('', '_blank', 'width=420,height=700')
-      if (!popup) {
-        toast.error('No se pudo abrir la ventana de impresión. Revisa el bloqueador de popups.')
-        return
-      }
-
       printBillingTicket(popup, {
         title: 'Reimpresión',
         pedidoId: printablePedido.id,
@@ -2009,6 +2009,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
 
       toast.success('Reimpresión preparada correctamente.')
     } catch (requestError) {
+      popup.close()
       const backendMessage =
         axios.isAxiosError(requestError) && requestError.response
           ? extractBackendMessage(requestError.response.data)
@@ -2081,14 +2082,21 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
             toast.info(message)
             return { ok: false, message }
           }
-          const response = await pedidosService.sendToKitchen(pedidoId)
+          const response = await pedidosService.sendToKitchen(pedidoId, { metodoImpresion: 'NAVEGADOR' })
           const enviados = response.data.detallesEnviados.length
           toast.success(enviados === 1 ? 'Producto enviado a cocina.' : `${enviados} productos enviados a cocina.`)
-          await loadPedidos()
-          if (selectedPedido) {
-            await openDetailsDialog({ ...selectedPedido, id: pedidoId })
+          void (async () => {
+            await loadPedidos()
+            if (selectedPedido) {
+              await openDetailsDialog({ ...selectedPedido, id: pedidoId })
+            }
+          })().catch(() => toast.error('La comanda se registró, pero no se pudo actualizar el pedido.'))
+          if (response.data.metodoImpresion !== 'NAVEGADOR') {
+            const message = 'La comanda se envió a la cola. Actualiza el backend para usar el selector del navegador y evitar impresiones duplicadas.'
+            toast.warning(message)
+            return { ok: true, browserPrint: false, message }
           }
-          return { ok: true }
+          return { ok: true, browserPrint: true }
         } catch (requestError) {
           const backendMessage =
             axios.isAxiosError(requestError) && requestError.response

@@ -2251,8 +2251,11 @@ export default function FacturacionModal({
 
     setSaving(true)
     try {
-      await pedidosService.bill(pedidoId)
+      const response = await pedidosService.bill(pedidoId, { metodoImpresion: 'NAVEGADOR' })
       toast.success('Pedido facturado correctamente.')
+      if (response.data.metodoImpresion !== 'NAVEGADOR') {
+        toast.warning('El backend también envió la factura a la cola. Actualízalo para evitar impresiones duplicadas.')
+      }
       await onFacturado()
       onClose()
     } catch (requestError) {

@@ -16,6 +16,7 @@ export interface KitchenTicketData {
 interface KitchenPrintConfirmResult {
   ok: boolean
   message?: string
+  browserPrint?: boolean
 }
 
 type KitchenPrintWindow = Window & {
@@ -164,44 +165,66 @@ export function openKitchenPrintPreview(
         ${productsHtml}
       </section>
       <section class="actions">
-        <button id="kitchen-print-button" class="button" type="button">Enviar a cocina</button>
-        <div id="kitchen-print-status" class="status">Revisa la comanda y confirma el envío a la impresora configurada.</div>
+        <button id="kitchen-print-button" class="button" type="button">Imprimir y enviar a cocina</button>
+        <div id="kitchen-print-status" class="status">Revisa la comanda y elige una impresora al confirmar.</div>
       </section>
     </main>
     <script>
       const button = document.getElementById('kitchen-print-button')
       const status = document.getElementById('kitchen-print-status')
+      let confirmed = false
+
+      function openPrintDialog() {
+        try {
+          window.focus()
+          window.print()
+        } catch {
+          status.textContent = 'No se pudo abrir el selector. Revisa la configuración del navegador y vuelve a intentarlo.'
+        }
+      }
 
       async function handleConfirmPrint() {
         if (!button || !status || typeof window.__confirmKitchenPrint__ !== 'function') {
           return
         }
 
+        if (confirmed) {
+          openPrintDialog()
+          return
+        }
+
         button.disabled = true
         status.textContent = 'Enviando comanda a cocina...'
 
+        let result
         try {
-          const result = await window.__confirmKitchenPrint__()
-          if (!result || !result.ok) {
-            status.textContent = result && result.message ? result.message : 'No fue posible enviar la comanda.'
-            button.disabled = false
-            return
-          }
-
-          status.textContent = 'Comanda enviada a la cola de impresión.'
-          window.close()
+          result = await window.__confirmKitchenPrint__()
         } catch {
           status.textContent = 'No fue posible enviar la comanda.'
           button.disabled = false
+          return
         }
+
+        if (!result || !result.ok) {
+          status.textContent = result && result.message ? result.message : 'No fue posible enviar la comanda.'
+          button.disabled = false
+          return
+        }
+
+        if (!result.browserPrint) {
+          status.textContent = result.message || 'La comanda se envió a la cola de impresión.'
+          return
+        }
+
+        confirmed = true
+        button.textContent = 'Volver a abrir selector de impresora'
+        button.disabled = false
+        status.textContent = 'Comanda registrada. Si cancelaste o no se imprimió, vuelve a abrir el selector.'
+        openPrintDialog()
       }
 
       button && button.addEventListener('click', () => {
         void handleConfirmPrint()
-      })
-
-      window.addEventListener('afterprint', () => {
-        window.close()
       })
     </script>
   </body>
