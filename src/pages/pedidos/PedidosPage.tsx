@@ -61,6 +61,7 @@ import type {
   TipoPedido,
 } from '@/types/pedido.types'
 import { openKitchenPrintPreview } from '@/utils/kitchenPrint'
+import { getPaymentMethodFromRecord, getPaymentMethodName } from '@/utils/paymentMethod'
 import { printBillingTicket, BILLING_TICKET_CEDULA } from '@/utils/billingTicketPrint'
 import { normalizeRole } from '@/utils/roles'
 import { findProductByQuery, productPriceInput } from '@/utils/productSearch'
@@ -307,10 +308,7 @@ function normalizePagoRecord(item: unknown): PagoPedido | null {
   return {
     id,
     metodoPagoId,
-    metodoPago:
-      typeof record.metodoPago === 'object' && record.metodoPago !== null
-        ? (record.metodoPago as PagoPedido['metodoPago'])
-        : undefined,
+    metodoPago: getPaymentMethodFromRecord(record),
     monto: Number.isFinite(monto) ? monto : 0,
     montoMoneda: Number(record.montoMoneda ?? record.monto_moneda ?? record.montoDolares ?? record.monto_dolares) || undefined,
     moneda:
@@ -1965,10 +1963,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
         : totalComputed
 
       const formattedPayments = printablePayments.map((payment) => {
-        const methodName =
-          payment.metodoPago?.nombre ??
-          paymentMethods.find((method) => method.id === payment.metodoPagoId)?.nombre ??
-          `Método #${payment.metodoPagoId}`
+        const methodName = getPaymentMethodName(payment, paymentMethods)
 
         return {
           metodo: methodName,
@@ -3320,7 +3315,7 @@ export default function PedidosPage({ fixedType }: PedidosPageProps = {}) {
                       currentPayments.map((payment) => (
                         <TableRow key={payment.id}>
                           <TableCell sx={{ color: COLOR_TEXT }}>
-                            {payment.metodoPago?.nombre ?? `Método #${payment.metodoPagoId}`}
+                            {getPaymentMethodName(payment, paymentMethods)}
                           </TableCell>
                           <TableCell sx={{ color: COLOR_TEXT }}>{formatCurrency(payment.monto)}</TableCell>
                           <TableCell sx={{ color: COLOR_MUTED }}>{payment.referencia || 'Sin referencia'}</TableCell>

@@ -23,6 +23,7 @@ import { toast } from 'react-toastify'
 import { pedidosService } from '@/services/pedidos.service'
 import { tipoCambioService, type TipoCambio } from '@/services/tipo-cambio.service'
 import type { MetodoPago, PagoPedido, Pedido, PedidoAccount, PedidoAccountDetail, PedidoDetalle } from '@/types/pedido.types'
+import { getPaymentMethodFromRecord, getPaymentMethodName } from '@/utils/paymentMethod'
 
 const COLOR_GOLD = '#D4AF37'
 const COLOR_TEXT = '#F3E9D2'
@@ -314,10 +315,7 @@ function normalizePago(item: unknown): PagoPedido | null {
   return {
     id,
     metodoPagoId,
-    metodoPago:
-      typeof record.metodoPago === 'object' && record.metodoPago !== null
-        ? (record.metodoPago as PagoPedido['metodoPago'])
-        : undefined,
+    metodoPago: getPaymentMethodFromRecord(record),
     monto: Number.isFinite(monto) ? monto : 0,
     moneda: typeof record.moneda === 'string' ? record.moneda : undefined,
     montoColones: Number(record.montoColones ?? record.monto_colones ?? 0) || undefined,
@@ -1399,7 +1397,7 @@ export default function FacturacionPage() {
           ) : (
             <Stack spacing={1}>
               {payments.map((payment) => {
-                const methodName = methods.find((item) => item.id === payment.metodoPagoId)?.nombre ?? `Metodo #${payment.metodoPagoId}`
+                const methodName = getPaymentMethodName(payment, methods)
                 const currency = String(payment.moneda ?? 'CRC').toUpperCase()
                 const displayedAmount = currency === 'USD' ? formatUSD(payment.monto) : formatCRC(payment.monto)
                 const displayedChange =

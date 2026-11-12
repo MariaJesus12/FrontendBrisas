@@ -28,6 +28,7 @@ import { pedidosService } from '@/services/pedidos.service'
 import { tipoCambioService, type TipoCambio } from '@/services/tipo-cambio.service'
 import type { MetodoPago, PagoPedido, Pedido, PedidoAccount, PedidoAccountDetail, PedidoDetalle } from '@/types/pedido.types'
 import { BILLING_TICKET_CEDULA, printBillingTicket } from '@/utils/billingTicketPrint'
+import { getPaymentMethodFromRecord, getPaymentMethodName } from '@/utils/paymentMethod'
 
 interface FacturacionModalProps {
   open: boolean
@@ -317,10 +318,7 @@ function normalizePago(item: unknown): PagoPedido | null {
   return {
     id,
     metodoPagoId: normalizedMetodoPagoId,
-    metodoPago:
-      typeof record.metodoPago === 'object' && record.metodoPago !== null
-        ? (record.metodoPago as PagoPedido['metodoPago'])
-        : undefined,
+    metodoPago: getPaymentMethodFromRecord(record),
     monto: Number.isFinite(monto) ? monto : 0,
     montoMoneda:
       parseMoneyValue(record.montoMoneda ?? record.monto_moneda ?? record.montoDolares ?? record.monto_dolares) ||
@@ -2307,10 +2305,7 @@ export default function FacturacionModal({
     })
 
     const formattedPayments = scopePayments.map((payment) => {
-      const methodName =
-        payment.metodoPago?.nombre ??
-        methods.find((method) => method.id === payment.metodoPagoId)?.nombre ??
-        `Método #${payment.metodoPagoId}`
+      const methodName = getPaymentMethodName(payment, methods)
       const amount = Number(payment.montoColones ?? payment.monto ?? 0)
       return {
         metodo: methodName,
@@ -2861,7 +2856,7 @@ export default function FacturacionModal({
               ) : (
                 <Stack spacing={0.75}>
                   {payments.map((payment) => {
-                    const method = methods.find((item) => item.id === payment.metodoPagoId)?.nombre ?? `Método #${payment.metodoPagoId}`
+                    const method = getPaymentMethodName(payment, methods)
                     const currency = String(payment.moneda ?? 'CRC').toUpperCase() === 'USD' ? 'USD' : 'CRC'
                     const amount = currency === 'USD' ? formatUSD(payment.monto) : formatCRC(payment.monto)
                     const accountLabel = payment.accountId
